@@ -34,6 +34,9 @@ import {
   writeJson,
 } from '../lib/dsh-home.js';
 import { detectArklink, detectWorld } from '../lib/detect.js';
+import { normalizeConfig } from '../lib/config.js';
+import { QqLink } from '../lib/arklink.js';
+import { listDays, localDay, readDay, readState, sampleOnce, statePath, summarize } from '../lib/monitor.js';
 
 const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -44,6 +47,10 @@ const HELP = `dsh-arkhub — 把 DSH 里的角色接上 QQ
   dsh-arkhub uninstall    撤回，把 profile 还原成装之前的样子
   dsh-arkhub status       看装了没、通道通没通
   dsh-arkhub doctor       体检：逐项告诉你哪里没通、怎么修
+  dsh-arkhub monitor      盯稳定性：收到的消息 + 存活时间，一直记到 Ctrl+C
+  dsh-arkhub monitor --once            采一次就走（看通不通）
+  dsh-arkhub monitor --report          看今天（和前两天）的总结
+  dsh-arkhub monitor --report --push 10001   看完直接推到 QQ，不问你
 
 安装参数：
   --profile <名字>   指定 profile（默认自动挑：装了 dsh-world 的那个）
@@ -365,6 +372,97 @@ async function commandDoctor(args) {
   return bad.length ? 1 : 0;
 }
 
+function printSummary(sum, day) {
+  const line = (label, value) => console.log(`${pad(label, 10)}${value}`);
+  const when = at => (at ? new Date(at).toLocaleString('zh-CN', { hour12: false }) : '—');
+  console.log(`\n== ${day} 稳定性 ==`);
+  line('时段', `${when(sum.from)} → ${when(sum.to)}（${sum.spanMinutes} 分钟，${sum.samples} 次采样）`);
+  line('在线率', `${sum.okRate.toFixed(2)}%（${sum.okCount}/${sum.samples}）`);
+  line('ArkLink', `已连续存活 ${sum.uptimeMinutes} 分钟`);
+  line('探测延迟', `p50 ${sum.latency.p50}ms / p95 ${sum.latency.p95}ms / 最大 ${sum.latency.max}ms`);
+  line('总线', `收包 ${sum.bus.total}，丢 ${sum.droppedDelta}，重复 ${sum.bus.duplicates}`);
+  line('消息', `${sum.messages} 条`);
+  for (const one of sum.byPeer) console.log(`${pad('', 10)}${one.key} × ${one.count}`);
+  if (!sum.outages.length) {
+    line('掉线', '没有');
+    return;
+  }
+  line('掉线', `${sum.outages.length} 次`);
+  for (const one of sum.outages) {
+    console.log(`${pad('', 10)}${when(one.down)} → ${one.up ? when(one.up) : '（到采样结束仍未恢复）'}${one.reason ? `  ${one.reason}` : ''}`);
+  }
+}
+
+async function commandMonitor(args) {
+  const home = args.home && args.home !== true ? resolve(String(args.home)) : dshHome();
+
+  if (args.report) {
+    const days = args.day && args.day !== true ? [String(args.day)] : listDays(home).slice(-3);
+    if (!days.length) {
+      console.log('还没有监控数据。先跑 dsh-arkhub monitor 攒一会儿，再回来看。');
+      return 0;
+    }
+    const texts = [];
+    for (const day of days) {
+      printSummary(summarize(readDay(home, day)), day);
+      const sum = summarize(readDay(home, day));
+      texts.push(
+        `【${day} 稳定性】在线率 ${sum.okRate.toFixed(1)}%，ArkLink 存活 ${sum.uptimeMinutes} 分钟，`
+          + `收包 ${sum.bus.total}（丢 ${sum.droppedDelta}），消息 ${sum.messages} 条，`
+          + `掉线 ${sum.outages.length} 次`,
+      );
+    }
+    // 推送不问人：给了 --push 就直接发。发送走 ArkLink，和正常回复是同一条路。
+    if (args.push) {
+      const config = normalizeConfig({});
+      const to = args.push === true ? String(config.qq.ownerQQ || '') : String(args.push);
+      if (!to) {
+        console.log('\n要推送得给个 QQ 号：--push 10001');
+        return 1;
+      }
+      try {
+        const receipt = await new QqLink(config, () => {}).send({ to, text: texts.join('\n') });
+        const dry = receipt && (receipt.dry_run === true || String(receipt.engine || '') === 'dry-run');
+        console.log(dry
+          ? `\n已交给 ArkLink，但它在演练模式（dry-run）：这条没有真的发到 ${to}`
+          : `\n已推送到 ${to}（没有二次确认，直接发的）`);
+      } catch (error) {
+        console.log(`\n推送失败：${error?.message || error}`);
+        return 1;
+      }
+    }
+    return 0;
+  }
+
+  const link = new QqLink(normalizeConfig({}), () => {});
+  const state = readState(home);
+  const everyMs = Math.max((Number(args.interval) || 30) * 1000, 5000);
+
+  if (args.once) {
+    const one = await sampleOnce({ link, home, state, log: console.log });
+    return one.ok ? 0 : 1;
+  }
+
+  const dir = statePath(home).replace(/monitor\.json$/, 'monitor');
+  console.log(`监控中：每 ${Math.round(everyMs / 1000)} 秒采一次，Ctrl+C 结束`);
+  console.log(`记录放：${dir}\\${localDay()}.jsonl`);
+  console.log(`接着上次的游标 ${state.since} 走，不会重复记。\n`);
+
+  let stopping = false;
+  process.on('SIGINT', () => {
+    stopping = true;
+    printSummary(summarize(readDay(home, localDay())), '本次');
+    process.exit(0);
+  });
+
+  while (!stopping) {
+    await sampleOnce({ link, home, state, log: console.log });
+    if (stopping) break;
+    await new Promise(done => setTimeout(done, everyMs));
+  }
+  return 0;
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   const args = parseArgs(argv);
@@ -378,6 +476,7 @@ async function main() {
   if (command === 'uninstall' || command === 'remove') return commandUninstall(args);
   if (command === 'status') return commandStatus(args);
   if (command === 'doctor' || command === 'check') return commandDoctor(args);
+  if (command === 'monitor' || command === 'watch') return commandMonitor(args);
 
   console.error(`不认识的命令：${command}`);
   console.log(HELP);

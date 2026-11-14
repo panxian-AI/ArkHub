@@ -104,6 +104,25 @@ dsh-world 自带一条 QQ 通道（`qqNative`，连 SnowLuma）。**两条通道
 不想用 ArkLink、只想让插件当个 OneBot 端子？把 `transport` 换成 `arkhub`，
 指向 `ArkHub` 的开放面（`http://127.0.0.1:7090`），收消息和发消息都走它。
 
+## 稳定性监控
+
+跑一整晚，看这条链路到底稳不稳。只读，不影响正在用的通道：
+
+```bash
+node bin/dsh-arkhub.mjs monitor              # 每 30 秒采一次，Ctrl+C 结束并出总结
+node bin/dsh-arkhub.mjs monitor --interval 15
+node bin/dsh-arkhub.mjs monitor --report     # 看今天（和前两天）的总结
+node bin/dsh-arkhub.mjs monitor --report --push 10001   # 直接推到 QQ，不问你
+```
+
+记的是两样东西：
+
+- **收到什么**：每条 QQ 消息（seq、私聊还是群、谁发的、正文前 300 字）
+- **活多久**：ArkLink 的 uptime、每次探测的延迟（p50/p95/最大）、总线丢包与重复、掉线时刻与恢复时刻
+
+数据落在 `~/.dsh/arkhub/monitor/<本地日期>.jsonl`，一行一个事件；游标存在
+`~/.dsh/arkhub/monitor.json`，重启接着走，不会重复记。晚上跑到凌晨算同一晚（按本地日期切文件）。
+
 ## 它不做什么
 
 - 不建人设、不管记忆、不管作息 —— 那是 dsh-world 的活
