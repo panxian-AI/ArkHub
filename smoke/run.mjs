@@ -65,8 +65,11 @@ function hash(text) {
 }
 
 // ---------------------------------------------------------------- 配置
+// 占位号码：仓库里不写真实 QQ 号，用环境变量可指向自己的账号
+const UIN = process.env.ARKHUB_TEST_UIN || '123456789';
+const GROUP = process.env.ARKHUB_TEST_GROUP || '987654321';
 const profilePatch = join(homedir(), '.dsh', 'profiles', 'desktop', 'cordis.patch.yml');
-let config = { enabled: true, transport: 'arklink', qq: { allowPrivate: ['123456789'], allowGroups: ['987654321'], ownerQQ: '123456789', autoReply: false } };
+let config = { enabled: true, transport: 'arklink', qq: { allowPrivate: [UIN], allowGroups: [GROUP], ownerQQ: UIN, autoReply: false } };
 try {
   const text = readFileSync(profilePatch, 'utf8');
   if (!text.includes('id: dsh-arkhub')) log('提示：profile 里还没接上 dsh-arkhub，用默认配置冒烟');

@@ -1,3 +1,10 @@
 node_modules/
 *.tgz
 .DS_Store
+
+# 运行时产物：监控记录、状态快照、备份，一律不进仓库
+*.jsonl
+*.log
+*.bak
+live.json
+monitor/

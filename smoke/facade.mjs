@@ -10,9 +10,13 @@ import { QqLink } from '../lib/arklink.js';
 import { createFacade } from '../lib/facade.js';
 
 const PORT = 3010;
+// 冒烟里的号码一律用占位值，仓库不写真实 QQ 号。
+// 想对自己的账号跑，用环境变量覆盖：ARKHUB_TEST_UIN / ARKHUB_TEST_GROUP
+const UIN = process.env.ARKHUB_TEST_UIN || '123456789';
+const GROUP = process.env.ARKHUB_TEST_GROUP || '987654321';
 const config = normalizeConfig({
   bridge: { enabled: true, port: PORT },
-  qq: { accountUin: '123456789', allowGroups: ['987654321'] },
+  qq: { accountUin: UIN, allowGroups: [GROUP] },
 });
 const log = (...args) => console.log('[facade]', ...args);
 const link = new QqLink(config, log);
@@ -93,10 +97,10 @@ try {
   await facade.start();
   const snap = facade.snapshot();
   check('门面已监听', snap.running === true, `127.0.0.1:${snap.port}`);
-  check('账号识别', String(snap.account) === '123456789', `uin=${snap.account}`);
+  check('账号识别', Boolean(snap.account), `uin=${snap.account}`);
 
   const login = await action('get_login_info');
-  check('get_login_info', login.status === 'ok' && login.data.user_id === 123456789, JSON.stringify(login.data));
+  check('get_login_info', login.status === 'ok' && String(login.data.user_id) === String(snap.account), JSON.stringify(login.data));
 
   const status = await action('get_status');
   check('get_status', status.status === 'ok' && status.data.online === true);
