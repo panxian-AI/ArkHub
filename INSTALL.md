@@ -82,6 +82,52 @@ node bin/dsh-arkhub.mjs uninstall
 
 ---
 
+## 换成门面模式（世界控制台那张 QQ 卡才有数）
+
+默认的「会话模式」是本插件自己把消息投进她的会话 —— 简单，但世界控制台（设置 → 世界控制台 →
+接入 → QQ）那张卡读的是 **qq-bridge**，所以它会显示「未运行」。
+
+想让它显示真的（桥在跑、上次收包、每个入口绑了哪间会话、主动聊天统计），就换成门面模式：
+本插件只做 OneBot 服务端，会话由 qq-bridge 按它自己的机制（`state/sessions.json` 按
+`private:<QQ>` / `group:<群号>` 绑定）来投。**SnowLuma 不再需要参与。**
+
+三步：
+
+```bash
+# 1. 让本插件开门面（OneBot 的 httpUrl / wsUrl 都指向 127.0.0.1:3010）
+node bin/dsh-arkhub.mjs install --bridge
+```
+
+```bash
+# 2. 把桥的上游指向门面（先停桥，改完再起；桥只在启动时读 config.json）
+#    ~/.dsh/qq-bridge/config.json
+#      snowluma.httpUrl  → http://127.0.0.1:3010
+#      snowluma.wsUrl    → ws://127.0.0.1:3010
+#      snowluma.accessToken → 与插件里的 bridge.token 一致（插件留空则随便填/留空）
+#    重启桥：世界控制台 QQ 卡上的「重启」，或
+curl -X POST http://127.0.0.1:62560/dsh-world/qq/halt -H 'x-dsh-world: 1' -d '{}'
+curl -X POST http://127.0.0.1:62560/dsh-world/qq/start -H 'x-dsh-world: 1' -d '{}'
+```
+
+3. 重启 DSH，然后看 `node bin/dsh-arkhub.mjs status`：
+
+```
+接法            门面模式（OneBot → qq-bridge 投会话）
+门面            127.0.0.1:3010 连着 1 个客户端
+                事件 0 / 已发 0 / 游标 3
+```
+
+`连着 1 个客户端` 就是桥连上来了。此时世界控制台那张卡上的「上次收包」会每 30 秒走一次
+（那是门面发的心跳），绑定的会话就是 `sessions.json` 里那几条 —— 也就是说，**对话还是按
+dsh-world / qq-bridge 原来的机制存在真机本地**，本插件不另存一份。
+
+> 门面能听懂的动作：`get_login_info`、`get_status`、`get_version_info`、
+> `get_group_list`、`get_friend_list`、`send_msg`、`send_private_msg`、`send_group_msg`。
+> 别的动作回 `retcode 1404`（桥会自己降级，不会崩）。图片、语音、表情这类富媒体暂不支持，
+> 发出去会被降级成纯文本。
+
+---
+
 ## 排障
 
 安装器已经把大部分坑挡掉了。剩下这几个是「环境」问题，脚本改不了：

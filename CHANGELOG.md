@@ -1,5 +1,21 @@
 # 更新日志
 
+## 0.3.0 — 2026-11-15
+
+新增「门面模式」：让 ArkLink 顶掉 SnowLuma，qq-bridge 与它那套会话机制原样照搬。
+
+- **为什么这么做**：世界控制台左下角那张 QQ 卡（桥在跑、上次收包、会话绑定、主动聊天统计）
+  读的是 qq-bridge。自己另起一套接收通道，那张卡永远是「未运行」，而且会话绑定要再存一份。
+  桥说的是 **OneBot 11**，所以只要有人在 3010 上说 OneBot，它什么都不用改。
+- **`bridge.enabled: true`**：本插件只做 OneBot 服务端 ——
+  HTTP 动作（`get_login_info` / `send_group_msg` / `send_private_msg` / `send_msg` /
+  `get_group_list` / `get_friend_list` / `get_status` / `get_version_info`）
+  + WebSocket 事件推送（message 事件、30 秒一次 heartbeat）。手写的握手与帧编解码，不引依赖。
+- **会话仍按 qq-bridge 的机制存**：`~/.dsh/qq-bridge/state/sessions.json`，按
+  `private:<QQ>` / `group:<群号>` 一条一条绑到具体会话；本插件不另存对话。
+- 不认识的动作回 `retcode 1404`，让桥自己降级而不是整个挂掉；富媒体暂降级为纯文本。
+- `install --bridge`：一条命令写成门面模式的配置。
+
 ## 0.2.0 — 2026-11-15
 
 把「装一个插件」从四步手工活变成一条命令。顺带修掉上一版装卸不干净的老账。

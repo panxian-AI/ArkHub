@@ -1,6 +1,6 @@
 {
   "name": "dsh-arkhub",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "把 DSH 里的角色接上 QQ：ArkLink 通道插件，走她原来的会话，不另起一个进程。",
   "keywords": [
     "dsh",
@@ -44,7 +44,7 @@
     }
   },
   "scripts": {
-    "test": "node --test test/text.test.js test/update.test.js test/install.test.js"
+    "test": "node --test test/text.test.js test/update.test.js test/install.test.js test/onebot.test.js"
   },
   "repository": {
     "type": "git",

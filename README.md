@@ -78,6 +78,23 @@ curl -X POST http://127.0.0.1:<端口>/dsh-arkhub/config \
   -d '{"autoReply": false, "allowPrivate": ["10001"]}'
 ```
 
+## 两种接法（选一种，别同时开）
+
+同时开会把每条回复发两遍。由 `bridge.enabled` 决定走哪条：
+
+| | `bridge.enabled: false`（默认）| `bridge.enabled: true` |
+|---|---|---|
+| 谁把消息投进会话 | 本插件自己 | qq-bridge（照搬它的机制）|
+| 会话绑定存哪 | `worlds/<id>/life.json` 的 `homeSessionId` | `~/.dsh/qq-bridge/state/sessions.json`，按 `private:<QQ>` / `group:<群号>` 一条一条绑 |
+| 世界控制台左下角那张 QQ 卡 | 不读本插件，会是「未运行」 | 真实：桥状态、上次收包、会话绑定、主动聊天统计 |
+| 需要 qq-bridge | 不需要 | 需要（它本来就在），但**不再需要 SnowLuma** |
+
+门面模式做的事很少：把 ArkLink 的消息流翻译成 OneBot 事件，从 `:3010` 推给 qq-bridge；
+桥发出去的 `send_group_msg` / `send_private_msg` 翻译回 ArkLink 的 `/api/v1/send`。
+桥那边的巡检、会话绑定、工具、主动聊天的账一件没改 —— 所以卡片上的数都是真的。
+
+切过去的步骤见 [INSTALL.md](INSTALL.md#换成门面模式世界控制台那张-qq-卡才有数)。
+
 ## 和 dsh-world 的关系
 
 dsh-world 自带一条 QQ 通道（`qqNative`，连 SnowLuma）。**两条通道不能同时开**，

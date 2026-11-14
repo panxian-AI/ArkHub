@@ -52,6 +52,8 @@ const HELP = `dsh-arkhub — 把 DSH 里的角色接上 QQ
   --private <a,b>    允许私聊的 QQ，逗号分隔（默认取 ArkLink 的允许列表）
   --groups <a,b>     允许的群，逗号分隔（默认取 ArkLink 的允许列表）
   --no-reply         装好先只收不回（观察用）
+  --bridge           门面模式：只做 OneBot，让 qq-bridge 按它的机制投会话
+                     （世界控制台那张 QQ 卡才是真的；见 INSTALL.md）
   --json             机器可读输出
 
 装完需要重启 DSH 才生效（profile 是启动时读的）。`;
@@ -125,6 +127,7 @@ async function buildConfig(args, home) {
         groupKeywords: ['大肥鱼', '鲸鱼', '小鲸鱼', '在吗'],
       },
       session: { worldId: world.worldId },
+      bridge: { enabled: args.bridge === true },
     },
   };
 }
@@ -183,6 +186,7 @@ async function commandInstall(args) {
   console.log(`${mark(config.qq.allowPrivate.length + config.qq.allowGroups.length > 0)} 白名单       私聊 ${config.qq.allowPrivate.join(' ') || '无'} / 群 ${config.qq.allowGroups.join(' ') || '无'}`);
   console.log(`${mark(Boolean(world.homeSessionId))} 角色         worldId=${world.worldId}${world.homeSessionId ? ` 会话 ${world.homeSessionId.slice(0, 18)}…` : '（还没建会话，首次说话时会自己建）'}`);
   console.log(`${mark(config.qq.autoReply)} 自动回复     ${config.qq.autoReply ? '开（收到就回）' : '关（只收不回，观察用）'}`);
+  console.log(`${mark(true)} 接法         ${config.bridge.enabled ? `门面模式：OneBot 在 127.0.0.1:${config.bridge.port}，会话由 qq-bridge 投` : '会话模式：本插件直接把消息投进她的会话'}`);
 
   if (!config.qq.allowPrivate.length && !config.qq.allowGroups.length) {
     console.log('');
@@ -269,11 +273,17 @@ async function commandStatus(args) {
     arklink,
     live: live
       ? {
+          mode: live.mode || 'session',
           running: Boolean(live.channel?.running),
           homeBound: Boolean(live.channel?.homeBound),
-          uin: live.channel?.account?.uin || '',
+          uin: live.channel?.account?.uin || live.channel?.account || '',
           cursor: live.channel?.cursor ?? null,
           counts: live.channel?.counts ?? null,
+          // 门面模式没有「收到/回复」，只有事件与发送计数；把它们的数接过来好一起显示
+          events: live.channel?.events ?? null,
+          sent: live.channel?.sent ?? null,
+          clients: live.channel?.clients ?? null,
+          bridgePort: live.channel?.port ?? null,
           lastError: live.channel?.lastError || '',
         }
       : null,
@@ -289,8 +299,15 @@ async function commandStatus(args) {
   if (arklink.dryRun === true) console.log(`${pad('')}演练模式：发不出去`);
   console.log(`${pad('角色')}worldId=${world.worldId}${world.homeSessionId ? ` 会话 ${world.homeSessionId.slice(0, 18)}…` : ' 未绑定'}`);
   if (live) {
-    console.log(`${pad('通道')}running=${out.live.running} homeBound=${out.live.homeBound} 游标=${out.live.cursor}`);
-    console.log(`${pad('')}收 ${out.live.counts?.received ?? 0} / 回 ${out.live.counts?.replied ?? 0} / 发 ${out.live.counts?.sent ?? 0} / 拦 ${out.live.counts?.blocked ?? 0} / 失败 ${out.live.counts?.failed ?? 0}`);
+    if (out.live.mode === 'bridge') {
+      console.log(`${pad('接法')}门面模式（OneBot → qq-bridge 投会话）`);
+      console.log(`${pad('门面')}127.0.0.1:${out.live.bridgePort} 连着 ${out.live.clients ?? 0} 个客户端`);
+      console.log(`${pad('')}事件 ${out.live.events ?? 0} / 已发 ${out.live.sent ?? 0} / 游标 ${out.live.cursor}`);
+    } else {
+      console.log(`${pad('接法')}会话模式（本插件直接把消息投进她的会话）`);
+      console.log(`${pad('通道')}running=${out.live.running} homeBound=${out.live.homeBound} 游标=${out.live.cursor}`);
+      console.log(`${pad('')}收 ${out.live.counts?.received ?? 0} / 回 ${out.live.counts?.replied ?? 0} / 发 ${out.live.counts?.sent ?? 0} / 拦 ${out.live.counts?.blocked ?? 0} / 失败 ${out.live.counts?.failed ?? 0}`);
+    }
     if (out.live.lastError) console.log(`${pad('')}最近错误：${out.live.lastError}`);
   } else {
     // 连不上分三种：端口没人听 / 服务在但路由不在（插件没加载）/ 别的错

@@ -53,3 +53,17 @@
           # 有新版在日志里说一句；false 就完全不查（也能用 DSH_ARKHUB_NO_UPDATE_CHECK=1）
           check: true
           repo: panxian-AI/ArkHub
+
+        # 两种接法，只开一种（同时开会把每条回复发两遍）
+        #   enabled: false → 本插件自己把消息投进她的会话（简单，不需要 qq-bridge）
+        #   enabled: true  → 只做 OneBot 门面：把 ArkLink 翻译成 OneBot，
+        #                    让 qq-bridge 用它的机制投会话（state/sessions.json 按
+        #                    private:<QQ> / group:<群号> 绑定），世界控制台那张 QQ 卡才是真的
+        bridge:
+          enabled: false
+          # OneBot 的 httpUrl 和 wsUrl 都指向这个端口
+          port: 3010
+          # 留空 = 不校验 token；qq-bridge 的 snowluma.accessToken 填同一个值即可
+          token: ''
+          heartbeatMs: 30000
+
