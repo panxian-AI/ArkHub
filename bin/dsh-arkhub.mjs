@@ -303,7 +303,7 @@ async function commandStatus(args) {
 
   console.log(`${pad('插件')}${target ? `已装进 profile ${target.name}` : '未安装（跑 install）'}`);
   console.log(`${pad('ArkLink')}${arklink.ok ? `通，账号 ${arklink.uin || '未知'}` : `不通：${arklink.error}`}`);
-  if (arklink.dryRun === true) console.log(`${pad('')}演练模式：发不出去`);
+  if (arklink.dryRun === true) console.log(`${pad('')}发送引擎：${arklink.engine || 'dry-run'}（演练，消息不出网）`);
   console.log(`${pad('角色')}worldId=${world.worldId}${world.homeSessionId ? ` 会话 ${world.homeSessionId.slice(0, 18)}…` : ' 未绑定'}`);
   if (live) {
     if (out.live.mode === 'bridge') {
@@ -357,7 +357,7 @@ async function commandDoctor(args) {
   const arklink = await detectArklink();
   add(arklink.ok, 'ArkLink', arklink.ok ? `账号 ${arklink.uin || '未知'}` : arklink.error, '确认 ArkLink 在跑，且 ~/.arklink/api.json 里的 token 是新的');
   add(Boolean(arklink.uin), '账号识别', arklink.uin || '读不到 uin', '用 --uin 手工指定');
-  add(arklink.dryRun !== true, '演练模式', arklink.dryRun === true ? '开着，消息不会真的发出' : arklink.dryRun === false ? '关着' : '看不出来（还没发过消息）', '在 ArkLink 内部关掉演练');
+  add(arklink.dryRun !== true, '发送引擎', arklink.engine ? `${arklink.engine}${arklink.dryRun === true ? '（演练，消息不出网）' : '（真发送）'}` : '看不出来（还没发过消息）', '在 ArkLink 内部切换发送引擎');
 
   const world = detectWorld(home);
   add(Boolean(world.homeSessionId), '角色的家', world.homeSessionId ? `worldId=${world.worldId}` : 'life.json 里没有 homeSessionId', '先让角色在 DSH 里说过一句话，或让插件自己建一间');
