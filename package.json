@@ -1,0 +1,49 @@
+{
+  "name": "dsh-arkhub",
+  "version": "0.1.0",
+  "description": "把 DSH 里的角色接上 QQ：ArkLink 通道插件，走她原来的会话，不另起一个进程。",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "qq",
+    "onebot",
+    "arklink"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "INSTALL.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=22.16.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-llm": ">=0.2.1-rc.2 <0.3.0-0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-llm": {
+      "optional": false
+    }
+  },
+  "scripts": {
+    "test": "node --test test/text.test.js test/update.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/panxian-AI/ArkHub.git"
+  }
+}

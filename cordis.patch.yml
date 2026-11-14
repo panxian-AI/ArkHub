@@ -1,0 +1,55 @@
+# dsh-arkhub 的装配行。
+#
+# 装好之后 DSH 会读这一段：id 必须和包名一致（设置页按 id 找配置），
+# name 是模块名。下面这些值都可以在「设置 → 插件」里改，改完重启生效。
+
+- insert:
+    - id: dsh-arkhub
+      name: dsh-arkhub
+      config:
+        # 总开关。关掉 = 插件装但不动 QQ。
+        enabled: true
+
+        # arklink：直连 ArkLink（不需要别的服务）
+        # arkhub ：走 ArkHub 的开放面（多一个网页面板和事件总线）
+        transport: arklink
+
+        arklink:
+          baseUrl: http://127.0.0.1:6900
+          token: ''
+          tokenFile: ~/.arklink/api.json
+          pollMs: 2000
+
+        qq:
+          # 她的 QQ 号：留空会自动从 ArkLink 的状态里读
+          accountUin: ''
+          # 谁能私聊她 / 哪些群放行。留空 = 谁都不理（这是故意的，不是坏了）
+          allowPrivate: []
+          allowGroups: []
+          # 她自己开的一轮（闹钟、世界线）说完的话推给谁；空 = 取 allowPrivate 第一个
+          ownerQQ: ''
+          # false = 只看不回，用来先验通道
+          autoReply: true
+          # mention：群里只有 @她 / 命中关键词才接；all：每句都接（除非群里只有你们俩，别用）
+          groupTrigger: mention
+          groupKeywords: []
+          contextMessages: 6
+          # 连着发的几句攒多久合成一段
+          batchQuietMs: 4500
+          # 静默到这个时间点（ISO 字符串），到点自己醒
+          mutedUntil: ''
+
+        session:
+          dshHome: ~/.dsh
+          # 用哪个世界的人：和 dsh-world 的 worldId 对上
+          worldId: default
+          # owner：私聊用她的家会话，群各自独立；all：都用家会话；none：全部新建
+          bindHomeSession: owner
+          agentPreset: standard
+          # 留空 = 从 worlds/<worldId>/life.json 里读 homeSessionId
+          homeSessionId: ''
+
+        update:
+          # 有新版在日志里说一句；false 就完全不查（也能用 DSH_ARKHUB_NO_UPDATE_CHECK=1）
+          check: true
+          repo: panxian-AI/ArkHub
