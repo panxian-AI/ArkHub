@@ -304,6 +304,9 @@ async function commandStatus(args) {
   console.log(`${pad('插件')}${target ? `已装进 profile ${target.name}` : '未安装（跑 install）'}`);
   console.log(`${pad('ArkLink')}${arklink.ok ? `通，账号 ${arklink.uin || '未知'}` : `不通：${arklink.error}`}`);
   if (arklink.dryRun === true) console.log(`${pad('')}发送引擎：${arklink.engine || 'dry-run'}（演练，消息不出网）`);
+  if (arklink.receive?.known) {
+    console.log(`${pad('')}收信：${arklink.receive.pipeOk ? 'hook 管道在' : 'hook 管道不在，收不到消息（跑 doctor 看怎么补）'}`);
+  }
   console.log(`${pad('角色')}worldId=${world.worldId}${world.homeSessionId ? ` 会话 ${world.homeSessionId.slice(0, 18)}…` : ' 未绑定'}`);
   if (live) {
     if (out.live.mode === 'bridge') {
@@ -358,6 +361,20 @@ async function commandDoctor(args) {
   add(arklink.ok, 'ArkLink', arklink.ok ? `账号 ${arklink.uin || '未知'}` : arklink.error, '确认 ArkLink 在跑，且 ~/.arklink/api.json 里的 token 是新的');
   add(Boolean(arklink.uin), '账号识别', arklink.uin || '读不到 uin', '用 --uin 手工指定');
   add(arklink.dryRun !== true, '发送引擎', arklink.engine ? `${arklink.engine}${arklink.dryRun === true ? '（演练，消息不出网）' : '（真发送）'}` : '看不出来（还没发过消息）', '在 ArkLink 内部切换发送引擎');
+
+  // 收信：ArkLink 靠 hook 注入 QQ 进程，管道不在就一条消息也收不到（发送却一切正常）
+  const recv = arklink.receive;
+  const recvOk = recv?.known ? recv.pipeOk === true : true;
+  add(
+    recvOk,
+    'ArkLink 收信',
+    recvOk
+      ? (recv?.known ? 'hook 管道在' : '看不出来（ArkLink 没给体检结果）')
+      : `hook 管道不存在${recv?.pipeDetail ? `（${recv.pipeDetail}）` : ''}：发得出去，收不到`,
+    process.platform === 'win32'
+      ? 'arklink hook --install（找不到进程就手动 --inject --pid <QQ 主进程>）'
+      : 'Linux：python tools/build_hook.py → sudo sysctl -w kernel.yama.ptrace_scope=0 → arklink hook --inject --pid <主进程> --dll hookdll/build/libarklink-hook-x64.so',
+  );
 
   const world = detectWorld(home);
   add(Boolean(world.homeSessionId), '角色的家', world.homeSessionId ? `worldId=${world.worldId}` : 'life.json 里没有 homeSessionId', '先让角色在 DSH 里说过一句话，或让插件自己建一间');

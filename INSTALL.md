@@ -136,11 +136,74 @@ dsh-world / qq-bridge 原来的机制存在真机本地**，本插件不另存�
 | --- | --- | --- |
 | `doctor` 说 ArkLink 不通 | 没启动，或 `~/.arklink/api.json` 里 token 过期 | 启动 ArkLink；重登一次让它写新 token。插件会在下次请求时自动重读，不用重启 DSH |
 | 收得到、发不出去 | **ArkLink 在演练模式（dry-run）** | 在 ArkLink 内部关掉演练。`status` 里 `channel.dryRun: true` 就是它 |
+| 发得出去、一条也收不到 | ArkLink 的 hook 管道没起来（没注入 / 模块跟 QQ 版本不兼容） | 见下面「收不到消息」一节，`doctor` 里也有一行专门的检查 |
 | 装完谁说话都不理 | 白名单为空 = 谁都不理 | ArkLink 没连上时读不到允许列表，连上后重跑 `install`，或 `--private/--groups` 手工指定 |
 | 群里不接话 | 默认 `groupTrigger: mention` | 要 @ 她或说到关键词（`groupKeywords`）。想全接改成 `all` |
 | 一条回复发两遍 | dsh-world 的 `qqNative` / `qqBridge` 也连着同一个 QQ | 一个 QQ 只能有一条线。把 dsh-world 那侧的通道关掉，只留本插件 |
 | `/dsh-arkhub/status` 打不开 | DSH 没重启，或端口不是 62560 | 重启；端口以 DSH 实际监听为准 |
 | 回复内容被砍成多段 | 她一次说了好几句 | 正常行为：按空行切成几条发，间隔 260ms |
+
+---
+
+## 收不到消息：先查 ArkLink 的「收信」能力
+
+这个故障最阴：**发送一切正常，就是一条消息也收不到**，面板上看不出任何异常。
+原因是 ArkLink 收信靠 hook 注入 QQ 进程，用管道把消息送进总线；管道不在，入站就是空的。
+
+### 三步自查（都不用登录控制台）
+
+```bash
+node bin/dsh-arkhub.mjs doctor          # 看「ArkLink 收信」这一行
+curl -s http://127.0.0.1:6800/api/doctor # 6800 = API 端口 -100，无需 token
+arklink hook --list                     # 「管道」列是 missing 还是 arklink.<pid>
+```
+
+客观指标只有一个：`curl -H "Authorization: Bearer <token>" http://127.0.0.1:6900/api/v1/status`
+里的 `bus.total` 会不会涨。**别拿面板上的「上次收包」当证据** —— 那个数可能来自另一条通道（SnowLuma）。
+
+### Windows
+
+```bash
+arklink hook --install          # 找主进程 → 编译 DLL → 注入 → 自检
+```
+
+### Linux
+
+`arklink hook --install` 在 Linux 上会**永远报「没找到 QQ.exe」**，因为它的进程过滤写死了 `QQ.exe`，
+而 Linux 上进程名是 `qq`。绕开它，手动三步：
+
+```bash
+cd /opt/ArkLink
+python3 tools/build_hook.py                                  # 产物 hookdll/build/libarklink-hook-x64.so
+sudo sysctl -w kernel.yama.ptrace_scope=0                    # Ubuntu 默认 1，注入第三方进程会被 EPERM 挡
+arklink hook --inject --pid $(pgrep -f '/usr/bin/qq' | head -1) \
+        --dll hookdll/build/libarklink-hook-x64.so
+```
+
+`ptrace_scope` 想永久生效：`echo 'kernel.yama.ptrace_scope = 0' | sudo tee /etc/sysctl.d/10-ptrace.conf`。
+
+如果 `--inject` 报 `dlopen 返回 0`，是它自己的 ptrace 远程调用不可靠（返回值可能是地址空间的乱码）。
+用 gdb 代替，效果相同且不动登录态：
+
+```bash
+gdb -q -p <主进程pid> -batch \
+  -ex 'call (void*) dlopen("/opt/ArkLink/hookdll/build/libarklink-hook-x64.so", 2)' \
+  -ex detach
+```
+
+### 判断「注入器坏了」还是「模块本身不兼容」
+
+写一个只写文件的 10 行 `libprobe.so` 注入进去。**注入成功但 hook 模块仍崩**，说明问题在模块，
+不在权限、也不在注入方式。已知：
+
+> ArkLink 0.13.0 的 POSIX hook 在 **QQ 3.2.32（Electron 40）/ Ubuntu 24.04** 上加载即崩：
+> `dlopen` 返回了非零句柄，紧接着在 `memcpy` 里 SIGSEGV，被 QQ 自带的 `libbugly.so` 崩溃处理器接住，
+> 随后 QQ 退出（守护脚本会把它拉起来，登录态不丢）。管道始终不出现。
+>
+> 这种情况**在客户端侧无解**，只能等上游修，或者把 ArkLink 放到 Windows 上跑（那里是它的主战场）。
+> 不要反复试注入 —— 每次都让 QQ 重启一次。
+
+---
 
 ## 配置改在哪
 
