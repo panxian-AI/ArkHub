@@ -130,6 +130,14 @@ node bin/dsh-arkhub.mjs monitor --report --push 10001   # 直接推到 QQ，不�
 - 不自动装 ArkLink、不替你扫码登录 QQ（这两件只有人能做）
 - 不偷偷升级自己：只提示，命令给你
 
+## 参与开发
+
+- **仓库里不写真实 QQ 号。** 测试、冒烟、注释、文档示例一律用占位值
+  （账号 `123456789`、群 `987654321`）；要对自己的账号跑，用环境变量
+  `ARKHUB_TEST_UIN` / `ARKHUB_TEST_GROUP` 覆盖，别把号码写回文件。
+- 运行时产物（`*.jsonl`、`*.log`、`live.json`、`monitor/`）已在 `.gitignore` 里，别提交。
+- 改动后跑 `npm test`；改了收发逻辑再跑 `node smoke/facade.mjs`（只连本地，不发 QQ 消息）。
+
 ## 许可
 
 MIT。见 [LICENSE](LICENSE)。
