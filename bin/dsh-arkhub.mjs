@@ -1,0 +1,375 @@
+#!/usr/bin/env node
+/**
+ * dsh-arkhub 的命令行：装、卸、看状态、体检。
+ *
+ * 设计原则：装一个 DSH 插件本来要人做四件事（改 package.json、改 cordis.patch.yml、
+ * 跑 pnpm、填 QQ 号）。四件事里三件是机械的，机械的就该由命令做——
+ * 所以 `dsh-arkhub install` 一条命令做完，人只剩「重启 DSH」这一下。
+ *
+ * 幂等：重复 install 不会重复登记、不会把配置翻倍；uninstall 只删自己那段。
+ */
+
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
+
+import {
+  BUNDLE_ID,
+  applyPatchBlock,
+  backupOnce,
+  buildPatchBlock,
+  dshHome,
+  dropBackup,
+  ensureBundle,
+  findToolchain,
+  linkSpec,
+  listProfiles,
+  pickProfile,
+  readJson,
+  removeBundle,
+  removeIfExists,
+  stripPatchBlock,
+  writeJson,
+} from '../lib/dsh-home.js';
+import { detectArklink, detectWorld } from '../lib/detect.js';
+
+const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+
+const HELP = `dsh-arkhub — 把 DSH 里的角色接上 QQ
+
+用法：
+  dsh-arkhub install      装进 DSH profile（自动选 profile、自动填账号）
+  dsh-arkhub uninstall    撤回，把 profile 还原成装之前的样子
+  dsh-arkhub status       看装了没、通道通没通
+  dsh-arkhub doctor       体检：逐项告诉你哪里没通、怎么修
+
+安装参数：
+  --profile <名字>   指定 profile（默认自动挑：装了 dsh-world 的那个）
+  --home <路径>      DSH 根目录（默认 ~/.dsh，或 $DSH_HOME）
+  --uin <QQ号>       账号 QQ（默认从 ArkLink 读）
+  --private <a,b>    允许私聊的 QQ，逗号分隔（默认取 ArkLink 的允许列表）
+  --groups <a,b>     允许的群，逗号分隔（默认取 ArkLink 的允许列表）
+  --no-reply         装好先只收不回（观察用）
+  --json             机器可读输出
+
+装完需要重启 DSH 才生效（profile 是启动时读的）。`;
+
+function parseArgs(argv) {
+  const args = { _: [] };
+  for (let i = 0; i < argv.length; i += 1) {
+    const one = argv[i];
+    if (!one.startsWith('--')) {
+      args._.push(one);
+      continue;
+    }
+    const key = one.slice(2);
+    const next = argv[i + 1];
+    if (next === undefined || next.startsWith('--')) {
+      args[key] = true;
+      continue;
+    }
+    args[key] = next;
+    i += 1;
+  }
+  return args;
+}
+
+/** 中文占两格宽，按字符数补空格会歪掉，所以按显示宽度对齐。 */
+const displayWidth = value =>
+  [...String(value)].reduce((sum, ch) => sum + (ch.codePointAt(0) > 0x2e80 ? 2 : 1), 0);
+const pad = (label, cols = 16) => `${label}${' '.repeat(Math.max(cols - displayWidth(label), 1))}`;
+const mark = ok => (ok ? '[ok]' : '[!!]');
+
+function splitList(value) {
+  if (!value || value === true) return null;
+  return String(value)
+    .split(/[,，\s]+/)
+    .map(one => one.trim())
+    .filter(Boolean);
+}
+
+/** 运行 DSH 自带 pnpm；用户 PATH 里不一定有。 */
+function runInstall(profileDir, home) {
+  const { node, pnpm } = findToolchain(home);
+  if (!pnpm) return { ok: false, output: '找不到 DSH 自带的 pnpm（~/.dsh/dsh-runtimes/*/dependencies/pnpm）' };
+  const res = spawnSync(node, [pnpm, 'install', '--dir', profileDir], {
+    encoding: 'utf8',
+    timeout: 180_000,
+    shell: false,
+  });
+  const output = `${res.stdout || ''}${res.stderr || ''}`.trim();
+  return { ok: res.status === 0, output };
+}
+
+async function buildConfig(args, home) {
+  const arklink = await detectArklink();
+  const world = detectWorld(home);
+
+  const uin = String(args.uin && args.uin !== true ? args.uin : arklink.uin || '');
+  const allowPrivate = splitList(args.private) ?? arklink.allowPrivate;
+  const allowGroups = splitList(args.groups) ?? arklink.allowGroups;
+
+  return {
+    arklink,
+    world,
+    config: {
+      arklink: { baseUrl: arklink.baseUrl },
+      qq: {
+        accountUin: uin,
+        allowPrivate,
+        allowGroups,
+        ownerQQ: uin,
+        autoReply: args['no-reply'] !== true,
+        groupKeywords: ['大肥鱼', '鲸鱼', '小鲸鱼', '在吗'],
+      },
+      session: { worldId: world.worldId },
+    },
+  };
+}
+
+async function commandInstall(args) {
+  const home = args.home && args.home !== true ? resolve(String(args.home)) : dshHome();
+  if (!existsSync(home)) {
+    console.error(`DSH 目录不存在：${home}\n先装 DSH，或用 --home 指定。`);
+    return 1;
+  }
+
+  const { profile, profiles, reason } = pickProfile(home, args.profile && args.profile !== true ? String(args.profile) : '');
+  if (!profile) {
+    console.error(reason);
+    if (profiles.length) console.error(`现有 profile：${profiles.map(p => p.name).join(', ')}`);
+    return 1;
+  }
+
+  const { arklink, world, config } = await buildConfig(args, home);
+
+  console.log(`装到 profile：${profile.name}（${reason}）`);
+
+  // 1) 依赖 + bundles
+  backupOnce(profile.file);
+  const pkgText = readFileSync(profile.file, 'utf8');
+  const pkg = readJson(profile.file);
+  pkg.dependencies = pkg.dependencies || {};
+  pkg.dependencies[BUNDLE_ID] = linkSpec(REPO_ROOT);
+  const bundleAdded = ensureBundle(pkg);
+  writeJson(profile.file, pkg);
+
+  // 2) 装配行
+  const patchFile = profile.patchFile;
+  const before = existsSync(patchFile) ? readFileSync(patchFile, 'utf8') : '';
+  backupOnce(patchFile);
+  writeFileSync(patchFile, applyPatchBlock(before, buildPatchBlock(config)), 'utf8');
+
+  // 3) 依赖落地。失败就把刚写的两个文件退回原样，不给人留一个半装状态
+  console.log('安装依赖…');
+  const installed = runInstall(profile.dir, home);
+  if (!installed.ok) {
+    writeFileSync(profile.file, pkgText, 'utf8');
+    writeFileSync(patchFile, before, 'utf8');
+    console.error('依赖安装失败，已把 profile 退回原样。');
+    console.error(installed.output.split('\n').slice(-12).join('\n'));
+    return 1;
+  }
+
+  const linked = existsSync(join(profile.dir, 'node_modules', BUNDLE_ID));
+
+  console.log('');
+  console.log(`${mark(true)} profile      ${profile.file}${bundleAdded ? '（已登记 bundle）' : '（bundle 早已登记）'}`);
+  console.log(`${mark(true)} 装配行       ${patchFile}`);
+  console.log(`${mark(linked)} 依赖         ${linked ? `node_modules/${BUNDLE_ID} → ${REPO_ROOT}` : '未落地，检查 pnpm 输出'}`);
+  console.log(`${mark(Boolean(config.qq.accountUin))} 账号         ${config.qq.accountUin || '未识别（ArkLink 没连上？装好后到面板里改）'}`);
+  console.log(`${mark(config.qq.allowPrivate.length + config.qq.allowGroups.length > 0)} 白名单       私聊 ${config.qq.allowPrivate.join(' ') || '无'} / 群 ${config.qq.allowGroups.join(' ') || '无'}`);
+  console.log(`${mark(Boolean(world.homeSessionId))} 角色         worldId=${world.worldId}${world.homeSessionId ? ` 会话 ${world.homeSessionId.slice(0, 18)}…` : '（还没建会话，首次说话时会自己建）'}`);
+  console.log(`${mark(config.qq.autoReply)} 自动回复     ${config.qq.autoReply ? '开（收到就回）' : '关（只收不回，观察用）'}`);
+
+  if (!config.qq.allowPrivate.length && !config.qq.allowGroups.length) {
+    console.log('');
+    console.log('注意：白名单是空的 —— 现在谁说话她都不会理。');
+    console.log('      ArkLink 没连上时读不到允许列表，连上后重跑 install，或用 --private/--groups 指定。');
+  }
+  if (arklink.dryRun === true) {
+    console.log('');
+    console.log('注意：ArkLink 处于演练模式（dry-run）—— 收得到、发不出去，看起来一切正常但消息不出网。');
+    console.log('      要先在 ArkLink 里关掉演练，这一步在它的虚拟机内部，命令行改不到。');
+  }
+  if (arklink.error) console.log(`\n提示：ArkLink 探测失败（${arklink.error}），账号/白名单需要手工补。`);
+
+  console.log('');
+  console.log('最后一步：重启 DSH。profile 只在启动时读一次。');
+  console.log('重启后打开 http://127.0.0.1:62560/dsh-arkhub/status 能看到 running: true 就通了。');
+  return 0;
+}
+
+async function commandUninstall(args) {
+  const home = args.home && args.home !== true ? resolve(String(args.home)) : dshHome();
+  const list = listProfiles(home);
+  const target = args.profile && args.profile !== true
+    ? list.find(p => p.name === String(args.profile))
+    : list.find(p => p.installed || p.bundles.includes(BUNDLE_ID));
+
+  if (!target) {
+    console.log('没有找到装过 dsh-arkhub 的 profile，无需撤回。');
+    return 0;
+  }
+
+  const pkg = readJson(target.file);
+  const hadDep = Boolean(pkg.dependencies?.[BUNDLE_ID]);
+  if (pkg.dependencies) delete pkg.dependencies[BUNDLE_ID];
+  const bundleRemoved = removeBundle(pkg);
+  writeJson(target.file, pkg);
+
+  if (existsSync(target.patchFile)) {
+    const after = stripPatchBlock(readFileSync(target.patchFile, 'utf8'));
+    writeFileSync(target.patchFile, after, 'utf8');
+  }
+
+  const off = runInstall(target.dir, home);
+  const leftover = removeIfExists(join(target.dir, 'node_modules', BUNDLE_ID));
+
+  dropBackup(target.file);
+  dropBackup(target.patchFile);
+
+  console.log(`已从 profile ${target.name} 撤回：`);
+  console.log(`  依赖          ${hadDep ? '已移除' : '本来就没有'}`);
+  console.log(`  bundle 登记   ${bundleRemoved ? '已移除' : '本来就没有'}`);
+  console.log(`  装配行        ${existsSync(target.patchFile) ? '已删掉本插件那一段（其余原样保留）' : '没有 cordis.patch.yml'}`);
+  console.log(`  落地的文件    ${leftover ? '已删除' : '没有残留'}`);
+  if (!off.ok) console.log(`  pnpm 同步    失败（不影响撤回）：${off.output.split('\n').slice(-3).join(' ')}`);
+  console.log('重启 DSH 后这个插件就彻底不在了。');
+  return 0;
+}
+
+async function commandStatus(args) {
+  const home = args.home && args.home !== true ? resolve(String(args.home)) : dshHome();
+  const list = listProfiles(home);
+  const target = list.find(p => p.installed || p.bundles.includes(BUNDLE_ID));
+  const world = detectWorld(home);
+  const arklink = await detectArklink();
+  const endpoint = 'http://127.0.0.1:62560/dsh-arkhub/status';
+
+  let live = null;
+  let liveStatus = 0;
+  let liveError = '';
+  try {
+    const res = await fetch(endpoint, { signal: AbortSignal.timeout(2500) });
+    liveStatus = res.status;
+    if (res.ok) live = await res.json();
+  } catch (error) {
+    liveError = error?.cause?.code || error?.message || String(error);
+  }
+
+  const out = {
+    repo: REPO_ROOT,
+    dshHome: home,
+    profiles: list.map(p => ({ name: p.name, installed: p.installed, hasBundle: p.bundles.includes(BUNDLE_ID) })),
+    profile: target?.name ?? null,
+    world,
+    arklink,
+    live: live
+      ? {
+          running: Boolean(live.channel?.running),
+          homeBound: Boolean(live.channel?.homeBound),
+          uin: live.channel?.account?.uin || '',
+          cursor: live.channel?.cursor ?? null,
+          counts: live.channel?.counts ?? null,
+          lastError: live.channel?.lastError || '',
+        }
+      : null,
+  };
+
+  if (args.json) {
+    console.log(JSON.stringify(out, null, 2));
+    return 0;
+  }
+
+  console.log(`${pad('插件')}${target ? `已装进 profile ${target.name}` : '未安装（跑 install）'}`);
+  console.log(`${pad('ArkLink')}${arklink.ok ? `通，账号 ${arklink.uin || '未知'}` : `不通：${arklink.error}`}`);
+  if (arklink.dryRun === true) console.log(`${pad('')}演练模式：发不出去`);
+  console.log(`${pad('角色')}worldId=${world.worldId}${world.homeSessionId ? ` 会话 ${world.homeSessionId.slice(0, 18)}…` : ' 未绑定'}`);
+  if (live) {
+    console.log(`${pad('通道')}running=${out.live.running} homeBound=${out.live.homeBound} 游标=${out.live.cursor}`);
+    console.log(`${pad('')}收 ${out.live.counts?.received ?? 0} / 回 ${out.live.counts?.replied ?? 0} / 发 ${out.live.counts?.sent ?? 0} / 拦 ${out.live.counts?.blocked ?? 0} / 失败 ${out.live.counts?.failed ?? 0}`);
+    if (out.live.lastError) console.log(`${pad('')}最近错误：${out.live.lastError}`);
+  } else {
+    // 连不上分三种：端口没人听 / 服务在但路由不在（插件没加载）/ 别的错
+    const why = liveStatus === 404
+      ? 'DSH 在跑，但 /dsh-arkhub 这段路由不在 —— 插件没被加载（没装，或装完还没重启）'
+      : liveStatus
+        ? `端口有响应，但返回 ${liveStatus}`
+        : `连不上 ${endpoint}（${liveError || 'DSH 没启动？端口不对？'}）`;
+    console.log(`${pad('通道')}${why}`);
+  }
+  return 0;
+}
+
+async function commandDoctor(args) {
+  const home = args.home && args.home !== true ? resolve(String(args.home)) : dshHome();
+  const checks = [];
+  const add = (ok, name, detail, fix) => checks.push({ ok, name, detail, fix });
+
+  const major = Number(process.versions.node.split('.')[0]);
+  add(major >= 22, 'Node 版本', `v${process.versions.node}`, '需要 Node >= 22（DSH 自带的那份就够）');
+
+  add(existsSync(home), 'DSH 目录', home, '先装 DSH，或用 --home 指定');
+
+  const list = listProfiles(home);
+  add(list.length > 0, 'profile', list.length ? list.map(p => p.name).join(', ') : '一个都没找到', 'profile 由 DSH 自己创建，先启动一次 DSH');
+
+  const target = list.find(p => p.installed || p.bundles.includes(BUNDLE_ID));
+  add(Boolean(target), '本插件', target ? `已登记在 ${target.name}` : '未安装', '跑 dsh-arkhub install');
+
+  if (target) {
+    const linked = existsSync(join(target.dir, 'node_modules', BUNDLE_ID));
+    add(linked, '依赖落地', linked ? `node_modules/${BUNDLE_ID}` : '缺文件', '跑 dsh-arkhub install 重新装一次');
+    const patch = existsSync(target.patchFile) ? readFileSync(target.patchFile, 'utf8') : '';
+    add(patch.includes(BUNDLE_ID), '装配行', patch.includes(BUNDLE_ID) ? 'cordis.patch.yml 里有' : '没有', '跑 dsh-arkhub install 重写');
+  }
+
+  const { node, pnpm } = findToolchain(home);
+  add(Boolean(pnpm), 'DSH 工具链', pnpm ? `${node}` : '没找到 node/pnpm', 'DSH 运行时会自带，重装 DSH 可恢复');
+
+  const arklink = await detectArklink();
+  add(arklink.ok, 'ArkLink', arklink.ok ? `账号 ${arklink.uin || '未知'}` : arklink.error, '确认 ArkLink 在跑，且 ~/.arklink/api.json 里的 token 是新的');
+  add(Boolean(arklink.uin), '账号识别', arklink.uin || '读不到 uin', '用 --uin 手工指定');
+  add(arklink.dryRun !== true, '演练模式', arklink.dryRun === true ? '开着，消息不会真的发出' : arklink.dryRun === false ? '关着' : '看不出来（还没发过消息）', '在 ArkLink 内部关掉演练');
+
+  const world = detectWorld(home);
+  add(Boolean(world.homeSessionId), '角色的家', world.homeSessionId ? `worldId=${world.worldId}` : 'life.json 里没有 homeSessionId', '先让角色在 DSH 里说过一句话，或让插件自己建一间');
+
+  for (const one of checks) {
+    console.log(`${mark(one.ok)} ${pad(one.name)} ${one.detail}`);
+    if (!one.ok && one.fix) console.log(`     └ 处理：${one.fix}`);
+  }
+  const bad = checks.filter(one => !one.ok);
+  console.log('');
+  console.log(bad.length ? `${bad.length} 项待处理。` : '全部正常。');
+  return bad.length ? 1 : 0;
+}
+
+async function main() {
+  const argv = process.argv.slice(2);
+  const args = parseArgs(argv);
+  const command = args._[0] || (args.help || args.h ? 'help' : 'help');
+
+  if (command === 'help' || args.help || args.h) {
+    console.log(HELP);
+    return 0;
+  }
+  if (command === 'install') return commandInstall(args);
+  if (command === 'uninstall' || command === 'remove') return commandUninstall(args);
+  if (command === 'status') return commandStatus(args);
+  if (command === 'doctor' || command === 'check') return commandDoctor(args);
+
+  console.error(`不认识的命令：${command}`);
+  console.log(HELP);
+  return 1;
+}
+
+main()
+  .then(code => process.exit(code ?? 0))
+  .catch(error => {
+    console.error(`出错了：${error?.message || error}`);
+    process.exit(1);
+  });

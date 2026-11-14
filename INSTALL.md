@@ -1,206 +1,108 @@
-# 交给她的安装说明
+# 装到 DSH 上
 
-这份文件不是给人看的，是给 **DSH 里的那个角色**看的：谁把仓库地址发过来，谁就照着这份说明，
-把 `dsh-arkhub` 装进 DSH，让 QQ 里的人能跟她说上话。
-
-先把边界说清楚，只有一件事你替不了：**装 ArkLink 并扫码登录 QQ**（如果那台机器上还没有）。
-其余步骤你自己做，做完再回来接手。
-
-一句话概括你要达成的状态：
-
-> DSH 里还是那个她（同一个人格、同一个家会话），QQ 发来的消息进她的会话，她的回复回到 QQ。
+这份文档是写给**替你动手的那个助手**看的。你只要把仓库链接贴给它，说「照 INSTALL.md 装」，它跑两条命令就够了。
 
 ---
 
-## 第零步：摸清四件事
+## 给人看的三句话
 
-动任何文件之前先查清这些，后面每条命令都要用。
+1. 先确认 ArkLink 在跑、QQ 登着（这一步本来就要做，不是本插件要求的）。
+2. 在仓库目录里跑 `node bin/dsh-arkhub.mjs install`。
+3. 重启 DSH。
 
-| 要知道的 | 怎么查 |
-|---|---|
-| `DSH_HOME` | Windows 默认 `C:\Users\<用户名>\.dsh`；看里面有没有 `profiles`、`worlds` |
-| 用哪个 profile | 列 `<DSH_HOME>/profiles/` 下的目录，挑 `package.json` 的 `dsh.profile.bundles` 里有你正在跑的那些插件的那个 |
-| node 版本 | `node -v`，要 ≥ 22.16；没有就用 DSH 自带的：`<DSH_HOME>/dsh-runtimes/dsh-primary-runtime/dependencies/node/bin/node.exe` |
-| pnpm 在哪 | 用 DSH 自带的：`<DSH_HOME>/dsh-runtimes/dsh-primary-runtime/dependencies/pnpm/bin/pnpm.cjs`，调用方式是 `node <那个 pnpm.cjs> <命令>` |
-
-> macOS / Linux 换成对应路径，命令不变。
+装完她会用**原来那个会话**回 QQ 消息，不新建角色、不另起进程。
 
 ---
 
-## 第一步：把包装进 profile
+## 给助手看的
 
-`dsh-arkhub` 是纯 ESM，没有构建步骤，装进去就能跑。
+### 前提
 
-### 从仓库装（推荐）
+| 项 | 怎么确认 |
+| --- | --- |
+| DSH 装好并能启动 | `~/.dsh/profiles/<名字>/package.json` 存在 |
+| ArkLink 在跑 | `~/.arklink/api.json` 里有 `base_url` 和 `token` |
+| Node ≥ 22 | DSH 自带那份就够，安装脚本会自己找 |
+
+### 第一步：体检
 
 ```bash
-git clone https://github.com/panxian-AI/ArkHub.git
-cd ArkHub
-npm pack                              # 产出 dsh-arkhub-<版本>.tgz（不需要 devDependencies）
+node bin/dsh-arkhub.mjs doctor
 ```
 
-拿到 tgz 的**绝对路径**，然后：
+逐项打 `[ok]` / `[!!]`，每一项不通过都直接给出处理办法。**先把它跑成全绿再往下走**，否则装完也是个哑的。
+
+### 第二步：装
 
 ```bash
-cd <DSH_HOME>/profiles/<profile>
-node <pnpm.cjs> add '<ArkHub 目录>/dsh-arkhub-0.1.0.tgz' --ignore-scripts
+node bin/dsh-arkhub.mjs install
 ```
 
-### 已经发布到 npm 之后
+这一条命令做的事（都不需要人插手）：
+
+- 自动挑 profile —— 优先挑**装了 dsh-world 的那个**，因为那条鱼在那儿；只有一个就选它
+- 把本仓库以 `link:` 方式写进 profile 的 `dependencies`，再跑 DSH 自带的 pnpm 落地
+- 在 `cordis.patch.yml` 末尾追加一段带标记的装配行（重复执行只会替换这一段）
+- 从 ArkLink 读出账号 QQ、允许的私聊/群，从 `worlds/<id>/life.json` 读出角色住的会话，自动填进配置
+- 改任何文件之前先存一份 `<文件>.dsh-arkhub.bak`；pnpm 失败会把改过的文件退回原样
+
+可选参数：
 
 ```bash
-cd <DSH_HOME>/profiles/<profile>
-node <pnpm.cjs> add dsh-arkhub@latest --ignore-scripts --registry=https://registry.npmjs.org/
+node bin/dsh-arkhub.mjs install --no-reply        # 先只收不回，观察一阵
+node bin/dsh-arkhub.mjs install --profile desktop # 指定 profile
+node bin/dsh-arkhub.mjs install --uin 123 --groups 456,789 --private 123
 ```
 
-> **不要**用 `link:` 指向 clone 下来的目录 —— 那样会加载项目自带的一份 Cordis，和 DSH 打架。
+### 第三步：重启 DSH
 
----
+profile 只在启动时读一次，不重启等于没装。
 
-## 第二步：登记 bundle
-
-打开 `<DSH_HOME>/profiles/<profile>/package.json`，在 `dsh.profile.bundles` 数组里加一项 `"dsh-arkhub"`：
-
-```json
-"dsh": {
-  "profile": {
-    "bundles": [
-      "…",
-      "dsh-arkhub"
-    ]
-  }
-}
-```
-
-只有登记了，DSH 启动时才会去读这个包自带的 `cordis.patch.yml`，把插件行插进来。
-
----
-
-## 第三步：别让两条通道抢同一个 QQ
-
-如果这个 profile 里已经装了 `dsh-world`，它自带一条 QQ 通道（`qqNative`，连 SnowLuma）。
-**两条通道同时开会把每条回复发两遍。**
-
-所以：在她的 `cordis.patch.yml` 里，把 `dsh-world` 那一段的 `qqNative.enabled` 改成 `false`：
-
-```yaml
-- id: dsh-world
-  name: dsh-world
-  config:
-    companionName: 大肥鱼
-    qqNative:
-      enabled: false        # ← 只改这一行：QQ 这条线交给 dsh-arkhub
-```
-
-如果她根本没有 `qqNative` 这一段（老版 dsh-world，走 `qqBridge`），把 `qqBridgeAutoStart` 设成 `false`，
-或者干脆不启动那个桥 —— 逻辑一样：一个 QQ 只能有一条线。
-
----
-
-## 第四步：配白名单
-
-打开 `<DSH_HOME>/profiles/<profile>/cordis.patch.yml`，找到 `id: dsh-arkhub` 那一段。
-装完之后它大概长这样（键都在，值是空的）：
-
-```yaml
-- id: dsh-arkhub
-  name: dsh-arkhub
-  config:
-    enabled: true
-    transport: arklink
-    arklink:
-      baseUrl: http://127.0.0.1:6900
-      tokenFile: ~/.arklink/api.json
-    qq:
-      allowPrivate: []        # ← 填：谁能私聊她（QQ 号，字符串）
-      allowGroups: []         # ← 填：放行哪些群（群号）
-      ownerQQ: ''             # ← 填：她自己开口时推给谁
-      autoReply: true
-      groupTrigger: mention
-      groupKeywords: []       # ← 可选：群里说这些词也算在叫她
-    session:
-      worldId: default
-      bindHomeSession: owner
-```
-
-三条硬规矩，别改错：
-
-1. **`allowPrivate` / `allowGroups` 留空 = 谁都不理**，不是「所有人都理」。这是故意的。
-2. `allowPrivate` / `allowGroups` 要写**数字串**，`['10001']`，不要写成用户名或昵称。
-3. 想先验通道不想让她回话，把 `autoReply` 设 `false`：收得到、不回、也不花额度。
-
-白名单从哪来？问主人要；或者让 ArkLink 列出来：
+重启后验证：
 
 ```bash
-curl -H "Authorization: Bearer <ArkLink token>" http://127.0.0.1:6900/api/v1/friends
-curl -H "Authorization: Bearer <ArkLink token>" http://127.0.0.1:6900/api/v1/groups
+curl -s http://127.0.0.1:62560/dsh-arkhub/status
 ```
 
----
+要看到：
 
-## 第五步：ArkLink 和 QQ（这一半只有人能做）
+- `channel.running: true`
+- `channel.homeBound: true`（说明接的是她原来的会话）
+- `channel.account.uin` 是她的 QQ 号
+- `channel.cursor` 是个大于 0 的数（说明游标已对齐，不会重放历史）
 
-如果 `http://127.0.0.1:6900/api/v1/status` 能返回 `{"ok": true, ...}`，说明 QQ 那一头已经好了，跳过这步。
-
-否则请主人做这两件事：
-
-1. 装 ArkLink 并**扫码登录 QQ**（这一步替不了，二维码得人拿手机扫）
-2. 把 ArkLink 的 API token 放到 `~/.arklink/api.json`（或填进 `arklink.token`）
-
-确认：
+### 撤回
 
 ```bash
-curl -s http://127.0.0.1:6900/api/v1/status
-# 期望：{"ok": true, "uin": "...", ...}
+node bin/dsh-arkhub.mjs uninstall
 ```
 
----
-
-## 第六步：重启 DSH
-
-前几步改的都是「DSH 启动时才读」的东西（bundles、cordis.patch.yml）。所以现在重启 DSH。
-
-重启后验证两件事：
-
-1. `http://127.0.0.1:<DSH 端口>/dsh-arkhub/status` 返回 JSON，且：
-   - `channel.running` 是 `true`
-   - `channel.homeBound` 是 `true`（说明接上了她原来的家会话）
-   - `channel.account.uin` 是她的 QQ 号
-2. 日志里有一行 `[arkhub] 已装配：transport=arklink ...` 和一行 `QQ 通道已开`
-
-> DSH 的 webServer 会校验 Host 头，用浏览器打开；拿 curl 打要带对 Host。
+删掉依赖、bundle 登记、装配行三处，其他条目一个字不碰；然后重启 DSH。
+反复装过也不会留下多余空行 —— 卸完的 `cordis.patch.yml` 与装之前逐字节一致（有测试盯着这件事）。
 
 ---
 
-## 第七步：真发一条
+## 排障
 
-让主人在 QQ 上用一个在 `allowPrivate` 里的号给她发一条：
+安装器已经把大部分坑挡掉了。剩下这几个是「环境」问题，脚本改不了：
 
-- 她回了 → 成了
-- 没回，但 `/dsh-arkhub/status` 里 `counts.blocked` 在涨 → 那个号不在白名单
-- `counts.received` 都不动 → 消息没进来，看 `lastError`
+| 现象 | 原因 | 怎么办 |
+| --- | --- | --- |
+| `doctor` 说 ArkLink 不通 | 没启动，或 `~/.arklink/api.json` 里 token 过期 | 启动 ArkLink；重登一次让它写新 token。插件会在下次请求时自动重读，不用重启 DSH |
+| 收得到、发不出去 | **ArkLink 在演练模式（dry-run）** | 在 ArkLink 内部关掉演练。`status` 里 `channel.dryRun: true` 就是它 |
+| 装完谁说话都不理 | 白名单为空 = 谁都不理 | ArkLink 没连上时读不到允许列表，连上后重跑 `install`，或 `--private/--groups` 手工指定 |
+| 群里不接话 | 默认 `groupTrigger: mention` | 要 @ 她或说到关键词（`groupKeywords`）。想全接改成 `all` |
+| 一条回复发两遍 | dsh-world 的 `qqNative` / `qqBridge` 也连着同一个 QQ | 一个 QQ 只能有一条线。把 dsh-world 那侧的通道关掉，只留本插件 |
+| `/dsh-arkhub/status` 打不开 | DSH 没重启，或端口不是 62560 | 重启；端口以 DSH 实际监听为准 |
+| 回复内容被砍成多段 | 她一次说了好几句 | 正常行为：按空行切成几条发，间隔 260ms |
 
-群里：@ 她一句应该回；说一句没叫她的，`counts.received` 会涨但 `replied` 不动（只记上下文，不回）。
+## 配置改在哪
 
----
+装配行在 profile 的 `cordis.patch.yml` 里，标记块 `# === dsh-arkhub BEGIN ... END ===` 之间。
+手改也行，但下次 `install` 会整段替换掉 —— 常改的几项（回不回、白名单）可以用接口热改，不用重启：
 
-## 出问题看这里
-
-| 现象 | 真正的原因 |
-|---|---|
-| `channel.running` 是 `false` | 看 `lastError`。多半是 ArkLink 没起、端口不对、token 不对 |
-| `homeBound` 是 `false` | 世界里还没有 `homeSessionId`：让她的世界先开始过一次；或者把 `session.homeSessionId` 手填上 |
-| 收到消息但一个字不回 | `qq.autoReply` 关着，或者 `counts.blocked` 在涨（白名单） |
-| 她回了，但 QQ 上没出现 | `counts.failed` 在涨，看 `lastError`；也可能是发送号没有权限（ArkLink 的发送策略会拦） |
-| 同一个问题收到两条回复 | dsh-world 的 `qqNative` 还开着，两条通道都在回 —— 见第三步 |
-| 群里 @ 了还是不接 | 群号要写进 `allowGroups`；另外群里默认只认 @ 她、或者 `groupKeywords` 里的词 |
-| 私聊进来的话串到群里 | `bindHomeSession: owner` 的含义是「私聊用家会话、群各自独立」；改成 `all` 才会共享 |
-| 装完 DSH 起不来 | 把 `package.json` 的 bundles 那行撤掉，重启确认能起，再检查 tgz 是否装全（`node_modules/dsh-arkhub/lib/index.js` 应该在） |
-| 设置里找不到这个插件 | 只登记了 install 没登记 bundle —— 见第二步 |
-
----
-
-## 一句话总结给主人听
-
-> 装好了。以后重启电脑只要两件事：ArkLink 自己登录 QQ、DSH 起来。她的记忆和人格还是原来那套，
-> 只是 QQ 这条路现在直通她。
+```bash
+curl -X POST http://127.0.0.1:62560/dsh-arkhub/config \
+  -H 'x-dsh-arkhub: 1' -H 'content-type: application/json' \
+  -d '{"autoReply": true}'
+```

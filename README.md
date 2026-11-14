@@ -25,22 +25,32 @@ QQ ──► ArkLink（登录着 QQ 的那台机器/虚拟机）──► dsh-ar
 | 静默 | `mutedUntil` 到点前只收不回 |
 | 状态路由 | `GET /dsh-arkhub/status` —— 面板、排障、脚本都看它 |
 | 更新提示 | 有新版在日志说一句；`update.check: false`、`DSH_ARKHUB_NO_UPDATE_CHECK=1`、或 `POST /dsh-arkhub/mute` 都能关 |
+| 命令装卸 | `dsh-arkhub install / uninstall / status / doctor`，自带体检与自动填配置 |
 
 ## 装
 
-把仓库地址交给 DSH 里的她，让她照 [INSTALL.md](INSTALL.md) 做；或者自己来：
+把仓库地址交给 DSH 里的她，让她照 [INSTALL.md](INSTALL.md) 做；或者自己来，两条命令：
 
 ```bash
-npm pack                                  # 产出 dsh-arkhub-0.1.0.tgz
-cd ~/.dsh/profiles/<profile>
-node <DSH 自带 pnpm> add <tgz 绝对路径> --ignore-scripts
+node bin/dsh-arkhub.mjs doctor    # 体检：哪一项没通、怎么修，直接说
+node bin/dsh-arkhub.mjs install   # 装：自动挑 profile、写装配行、填 QQ 号、落地依赖
 ```
 
-然后在这个 profile 的 `package.json` 的 `dsh.profile.bundles` 里加一行 `"dsh-arkhub"`，
-重启 DSH。插件自带 `cordis.patch.yml`，装配行会自己插进去。
+然后重启 DSH。
+
+`install` 干完的活原本要人手工做四步（改 `package.json` 的 bundles、改 `cordis.patch.yml` 的 YAML、
+跑 pnpm、把 QQ 号抄对）。它自己找 profile、自己从 ArkLink 读账号和白名单、自己从 `life.json` 读她住哪间，
+改文件前留备份，pnpm 失败会把文件退回原样。**重复执行只有一段，不会翻倍。**
+
+撤回来一条：
+
+```bash
+node bin/dsh-arkhub.mjs uninstall   # 卸掉依赖 / bundle 登记 / 装配行，其他条目一个字不碰
+```
 
 > 装完先看 `http://127.0.0.1:<DSH 端口>/dsh-arkhub/status`：`channel.running` 是 `true`、
 > `homeBound` 也是 `true`，说明它已经在听 QQ 了。
+> 如果 `dryRun` 是 `true`，说明 ArkLink 在演练模式 —— 收得到、发不出去，这一步得在 ArkLink 那边关。
 
 ## 配置
 
