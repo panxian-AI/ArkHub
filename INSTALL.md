@@ -91,20 +91,48 @@ node bin/dsh-arkhub.mjs uninstall
 本插件只做 OneBot 服务端，会话由 qq-bridge 按它自己的机制（`state/sessions.json` 按
 `private:<QQ>` / `group:<群号>` 绑定）来投。**收信要另外接一条**——见下一节。
 
-一条命令换过去，一条命令退回来：
+### 概念：一条「线」= 一个号 + 桥的上游
+
+| 线 | 谁在说话 | 桥的上游 | 收信 / 富消息 |
+| --- | --- | --- | --- |
+| `vm` | VM 里登录的那个号 | 本插件的门面 `127.0.0.1:3010` | VM 里的 SnowLuma（语音、引用、图片都在协议层）；发文字失败才退回 ArkLink |
+| `windows` | 本机 SnowLuma 登录的那个号 | 真 SnowLuma（换桥前 `config.json` 里的地址，通常 `:3001`） | 全由 qq-bridge + 本机 SnowLuma 负责，本插件待命 |
+
+号不用单独选：桥的上游指向谁，说话的就是谁的号。选 `windows` 时装配行里的
+`channel.enabled` 会一起关掉 —— 本插件不轮询、不开门面，只留状态和换线路由；
+不关的话它会拿另一个号同时回话。
+
+### 在世界控制台里点（推荐）
 
 ```bash
-node bin/dsh-arkhub.mjs bridge use       # 换成门面模式
-node bin/dsh-arkhub.mjs bridge rollback  # 退回会话模式（恢复换桥前的桥配置）
+node tools/dsh-world-patch/apply.mjs     # 给 dsh-world 的 QQ 卡加一行「用哪个号」
 ```
 
-`bridge use` 一口气做三件事：
+装完重启 DSH，设置 → 世界控制台 → 接入 → QQ 卡上会多一行按钮：两条线各一个，
+标着昵称和号、活没活、现在用哪条。点一下 = 换线 + 重启桥，十几秒；界面会自己轮询到切完。
+进度写进 `~/.dsh/arkhub/line-switch.log`。
 
-1. 把装配行里的 `bridge.enabled` 翻成 `true`（DSH 热重载，门面 :3010 当场起来）；
+> dsh-world 升级会把这些改动冲掉（它装在 `node_modules` 里，没有扩展接口）。冲掉之后
+> 再跑一次上面那条命令就行，补丁是幂等的；`--check` 只看不装。
+
+### 用命令行
+
+```bash
+node bin/dsh-arkhub.mjs lines          # 看有哪两条线、各自活没活、现在在哪条
+node bin/dsh-arkhub.mjs line vm        # 换到门面（VM 里的号）
+node bin/dsh-arkhub.mjs line windows   # 换回原桥（本机 SnowLuma 直连），本插件随之待命
+```
+
+`bridge use` / `bridge rollback` 是这两个的旧名字，行为一致。
+
+`line vm` 一口气做三件事：
+
+1. 把装配行里的 `bridge.enabled` / `channel.enabled` 翻成 `true`（DSH 热重载，门面 :3010 当场起来）；
 2. 把 `~/.dsh/qq-bridge/config.json` 的 `snowluma.httpUrl` / `wsUrl` 指向 `127.0.0.1:3010`、
    `accessToken` 对齐，并关掉 `followDiscoveredEndpoint` —— 这条最关键：桥的自愈机制默认会
    「发现」真实 SnowLuma 并悄悄连回去、把配置改回来，不关等于没换；
-   原配置先存一份 `config.json.dsh-arkhub.bak`（rollback 就是从这里还原）；
+   原配置先存一份 `config.json.dsh-arkhub.bak`（换回来就是从这里还原，DSH 的端口用现在这个，
+   备份里那份可能已经过期）；
 3. 打桥自己的 `/api/restart` 让它按新配置重连（世界控制台的 halt/start 门不顶用——
    halt 会把连接打断，start 只看「活着没」，桥喘着气就回 already-running）。
 

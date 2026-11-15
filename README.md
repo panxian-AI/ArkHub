@@ -24,6 +24,7 @@ QQ ──► ArkLink（登录着 QQ 的那台机器/虚拟机）──► dsh-ar
 | 攒批 | 连着发的几句合成一段，不让她为半句话回三次 |
 | 静默 | `mutedUntil` 到点前只收不回 |
 | 状态路由 | `GET /dsh-arkhub/status` —— 面板、排障、脚本都看它 |
+| 用哪个号 | 两条「线」各自一个号：`vm`（门面 + VM 里的 SnowLuma）和 `windows`（本机 SnowLuma 直连）。世界控制台 QQ 卡上多一行选择器，点一下就换（`tools/dsh-world-patch/apply.mjs`），命令行也行：`line vm` / `line windows` |
 | 更新提示 | 有新版在日志说一句；`update.check: false`、`DSH_ARKHUB_NO_UPDATE_CHECK=1`、或 `POST /dsh-arkhub/mute` 都能关 |
 | 命令装卸 | `dsh-arkhub install / uninstall / status / doctor`，自带体检与自动填配置 |
 

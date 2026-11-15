@@ -1,5 +1,28 @@
 # 更新日志
 
+## 0.6.0 — 2026-11-15
+
+世界控制台多了一行「用哪个号」。以前换号 = 改装配行 + 改桥配置 + 重启桥，三件事分别在三个
+地方；现在是一次点击，两条线各自有名字、有号码、有活没活。
+
+- 新增 `lib/lines.js`：「线」= 一个号 + 桥的上游。`vm`（VM 里的号，走门面，收信和
+  语音/引用在 SnowLuma）和 `windows`（本机 SnowLuma 直连，换桥前的样子）。号不单独选 ——
+  上游指向谁，说话的就是谁。
+- 新增 `channel.enabled`：选 `windows` 时本插件整段待命（不轮询、不开门面，只留状态与
+  换线路由）。不这样的话它会拿另一个号同时回话。
+- 新路由 `GET /dsh-arkhub/lines`（只读文件 + 探活）和 `POST /dsh-arkhub/lines {target}`。
+  POST 先回 202 再把活交给独立进程 —— 换线要动装配行，DSH 会热重载本插件，
+  在进程里做的话桥的重启那一步会连同 Promise 一起被丢掉。
+- 新增 `dsh-arkhub lines` / `dsh-arkhub line vm|windows`；`bridge use` / `bridge rollback`
+  改成它们的别名，后者现在是「换到原桥那条线」而不是「回会话模式」。
+- 切回原桥时恢复备份会保留**现在的** `dsh.baseUrl`：备份里那份是换桥前的端口，照抄过去
+  桥就找不到 DSH，看着像连上了、其实一帧都不来。
+- 门面把昵称也报出来（`get_login_info` / `/api/status` 的 `nickname`），界面上才写得出
+  「小暖 · 100010002」；换线接口不回令牌，只说有没有配。
+- 新增 `tools/dsh-world-patch/apply.mjs`：给 dsh-world 的 QQ 卡补一行选择器（宿主路由 + 客户端
+  按钮），幂等、带原件备份、`--check` 只看不装。dsh-world 升级冲掉之后重跑一次即可。
+- 测试 69 通过（新增 `test/lines.test.js` 7 个、`test/channel.test.js` 4 个）。
+
 ## 0.5.0 — 2026-11-15
 
 收信接上了，语音和引用也回来了。之前门面只会「替 ArkLink 打字」：ArkLink 在无头

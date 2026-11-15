@@ -37,6 +37,7 @@ import { detectArklink, detectWorld } from '../lib/detect.js';
 import { normalizeConfig } from '../lib/config.js';
 import { QqLink } from '../lib/arklink.js';
 import { bridgeSwitchAndRestart } from '../lib/switch.js';
+import { describeLines, switchLine } from '../lib/lines.js';
 import { listDays, localDay, readDay, readState, sampleOnce, statePath, summarize } from '../lib/monitor.js';
 
 const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -52,8 +53,11 @@ const HELP = `dsh-arkhub — 把 DSH 里的角色接上 QQ
   dsh-arkhub monitor --once            采一次就走（看通不通）
   dsh-arkhub monitor --report          看今天（和前两天的总结）
   dsh-arkhub monitor --report --push 10001   看完直接推到 QQ，不问你
-  dsh-arkhub bridge use    换成门面模式：世界控制台的 QQ 卡显示真的桥
-  dsh-arkhub bridge rollback  退回会话模式（恢复换桥前的桥配置）
+  dsh-arkhub lines        看有哪两条线（哪个号、桥现在指向谁）
+  dsh-arkhub line vm      换成门面那条线（VM 里的号 + ArkHub 门面）
+  dsh-arkhub line windows 换成原桥那条线（本机 SnowLuma 直连），本插件随之待命
+  dsh-arkhub bridge use      = line vm（旧名字，留着不废）
+  dsh-arkhub bridge rollback = line windows
 
 安装参数：
   --profile <名字>   指定 profile（默认自动挑：装了 dsh-world 的那个）
@@ -496,6 +500,7 @@ async function commandBridge(args) {
     const { port } = await bridgeSwitchAndRestart({
       home,
       use,
+      channel: use,
       profile: args.profile && args.profile !== true ? String(args.profile) : '',
       logger: console,
     });
@@ -506,11 +511,62 @@ async function commandBridge(args) {
       console.log(`   验证       世界控制台 → 设置 → 接入 → QQ：卡片应显示运行中、上次收包在走；`);
       console.log(`              或 node bin/dsh-arkhub.mjs status 看「门面 连着 N 个客户端」。`);
     } else {
-      console.log(`${mark(true)} 已退回      会话模式（本插件直接把消息投进她的会话）`);
+      console.log(`${mark(true)} 已退回      原桥那条线（本机 SnowLuma 直连），本插件待命`);
     }
     return 0;
   } catch (error) {
     console.error(`换桥失败：${error.message}`);
+    return 1;
+  }
+}
+
+/** 换线：line vm / line windows。三处改动一条命令做完，换回来也是一条。 */
+async function commandLine(args) {
+  const target = String(args._[1] || '');
+  if (!['vm', 'windows'].includes(target)) {
+    console.error('用法：dsh-arkhub line vm ｜ dsh-arkhub line windows（不带参数 = 只看现在在哪条线）');
+    if (target === '') return commandLines(args);
+    return 1;
+  }
+  const home = args.home && args.home !== true ? resolve(String(args.home)) : dshHome();
+  try {
+    const { port, restarted } = await switchLine({
+      home,
+      target,
+      profile: args.profile && args.profile !== true ? String(args.profile) : '',
+      logger: console,
+    });
+    console.log('');
+    if (target === 'vm') {
+      console.log(`${mark(true)} 线          门面（VM 里的号），OneBot 在 127.0.0.1:${port}`);
+      console.log(`${mark(true)} 收信        VM 里的 SnowLuma：语音、引用、图片都在协议层`);
+      console.log(`${mark(true)} 发文字      先走 SnowLuma，失败退回 ArkLink`);
+    } else {
+      console.log(`${mark(true)} 线          原桥（本机 SnowLuma 直连），本插件已待命`);
+      console.log(`${mark(true)} 收信/发信   全由 qq-bridge + 本机 SnowLuma 负责，不经过本插件`);
+    }
+    console.log(`${mark(restarted?.ok)} 桥          ${restarted?.ok ? '已重启，几秒后按新配置连上游' : '没自动重启：世界控制台 QQ 卡上点一下「重启」'}`);
+    return 0;
+  } catch (error) {
+    console.error(`换线失败：${error.message}`);
+    return 1;
+  }
+}
+
+/** 只看：两条线各自活没活、现在用的是哪条。 */
+async function commandLines(args) {
+  const home = args.home && args.home !== true ? resolve(String(args.home)) : dshHome();
+  try {
+    const view = await describeLines({ home, profile: args.profile && args.profile !== true ? String(args.profile) : '' });
+    console.log(`现在：${view.current === 'vm' ? '门面（VM 里的号）' : view.current === 'windows' ? '原桥（本机 SnowLuma）' : '看不出来'}`);
+    for (const line of view.lines) {
+      const flags = [line.current ? '← 当前' : '', line.alive ? '在线' : '没连上', line.available ? '' : '不可用'].filter(Boolean).join(' · ');
+      console.log(`${mark(line.alive)} ${line.label.padEnd(22)} ${line.upstream || '—'}  ${flags}`);
+      if (line.error) console.log(`    ${line.error}`);
+    }
+    return 0;
+  } catch (error) {
+    console.error(`读不到：${error.message}`);
     return 1;
   }
 }
@@ -530,6 +586,8 @@ async function main() {
   if (command === 'doctor' || command === 'check') return commandDoctor(args);
   if (command === 'monitor' || command === 'watch') return commandMonitor(args);
   if (command === 'bridge') return commandBridge(args);
+  if (command === 'line') return commandLine(args);
+  if (command === 'lines') return commandLines(args);
 
   console.error(`不认识的命令：${command}`);
   console.log(HELP);
