@@ -187,3 +187,17 @@ test('门面在但号没上来：算没上线，不算连上', async () => {
     f.cleanup();
   }
 });
+
+test('世界控制台那张卡也带「人工接管」：没配也给一份可读的，不能是 undefined', async () => {
+  const f = fixture();
+  try {
+    const view = await describeLines({ home: f.home, config: {}, fetchImpl: fakeFetch({}) });
+    assert.ok(view.manual && typeof view.manual === 'object');
+    assert.equal(view.manual.configured, false);
+    assert.match(view.manual.note, /manual set/);
+    // 地址（含密码）永远不进这张卡
+    assert.equal('url' in view.manual, false);
+  } finally {
+    f.cleanup();
+  }
+});

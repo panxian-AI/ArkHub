@@ -132,11 +132,36 @@ const CLIENT_VIEW = `        // ${MARK} —— 用哪个号。一条线 = 一个
           picking ? h('span', { className: 'dw-muted' }, ' · 切换中…') : null),
 `;
 
+/** 人工接管（VM 桌面）：watchdog 收录不到的界面靠人亲手点。 */
+const CLIENT_MANUAL = `        // ${MARK} —— 人工接管：设备锁、验证页、风控提示这些 watchdog 认不出的界面，
+        // 得让人自己用鼠标键盘点。按钮只指向插件的一次跳转 —— VNC 地址和密码都在
+        // 宿主机的 ~/.dsh/arkhub/manual.json 里，界面只知道「配没配、通没通」。
+        lines && lines.manual && lines.manual.configured
+          ? h('div', { key: 'm', className: 'dw-setting' },
+            h('div', { className: 'dw-muted', style: { marginBottom: 6 } }, '人工接管（鼠标键盘直接操作虚拟机）'),
+            h('button', {
+              key: 'go',
+              className: 'dw-btn',
+              title: lines.manual.note || '',
+              style: { marginRight: 8 },
+              onClick: function () {
+                // 新窗口被拦（桌面端常见）就退回本页跳转：面板能回来，路只有一条
+                var win = window.open('/dsh-arkhub/manual', '_blank')
+                if (!win) location.href = '/dsh-arkhub/manual'
+              }
+            }, lines.manual.reachable
+              ? '打开' + (lines.manual.label || '虚拟机画面')
+              : '画面没接通（点开有说明）'),
+            lines.manual.reachable
+              ? null
+              : h('span', { className: 'dw-muted' }, ' · ' + (lines.manual.target || '本机转发没在跑')))
+          : null,
+`;
+
 function fail(message) {
   console.error(message);
   process.exit(1);
 }
-
 function patchFile(file, edits, { apply }) {
   if (!existsSync(file)) return { file, missing: true, changed: false };
   const before = readFileSync(file, 'utf8');
@@ -313,6 +338,13 @@ function main() {
         find: '        h(\'div\', { key: \'k\', className: \'dw-setting\' },',
         replace: `${CLIENT_VIEW.replace(MARK, `${MARK}:view`).trimEnd()}\n        h('div', { key: 'k', className: 'dw-setting' },`,
       },
+      {
+        label: '界面：人工接管（虚拟机画面）',
+        marker: `${MARK}:manual`,
+        // 同一个锚点：上一段（用哪个号）先插在它前面，这段再插进去就排在它后面
+        find: '        h(\'div\', { key: \'k\', className: \'dw-setting\' },',
+        replace: `${CLIENT_MANUAL.replace(MARK, `${MARK}:manual`).trimEnd()}\n        h('div', { key: 'k', className: 'dw-setting' },`,
+      },
     ], { apply: !check }),
   ];
 
@@ -342,7 +374,7 @@ function main() {
 
   console.log(bad
     ? `\n补了一半（dsh-world ${version}）。标 ✗ 的地方要人工看一眼，其余已经装好。`
-    : `\n装好了（dsh-world ${version}）。重启 DSH 后，设置 → 世界控制台 → QQ 卡上会多一行「用哪个号」。`);
+    : `\n装好了（dsh-world ${version}）。重启 DSH 后，设置 → 世界控制台 → QQ 卡上会多出「用哪个号」和「人工接管」两行。`);
   process.exit(bad ? 1 : 0);
 }
 

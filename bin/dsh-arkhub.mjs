@@ -40,6 +40,7 @@ import { normalizeConfig } from '../lib/config.js';
 import { QqLink } from '../lib/arklink.js';
 import { bridgeSwitchAndRestart } from '../lib/switch.js';
 import { describeLines, switchLine } from '../lib/lines.js';
+import { clearManual, describeManual, readManual, startRelay, writeManual } from '../lib/manual.js';
 import { listDays, localDay, readDay, readState, sampleOnce, statePath, summarize } from '../lib/monitor.js';
 
 const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -60,6 +61,10 @@ const HELP = `dsh-arkhub — 把 DSH 里的角色接上 QQ
   dsh-arkhub line windows 换成原桥那条线（本机 SnowLuma 直连），本插件随之待命
   dsh-arkhub bridge use      = line vm（旧名字，留着不废）
   dsh-arkhub bridge rollback = line windows
+  dsh-arkhub manual        看「人工接管」（虚拟机画面）配了没、通没通
+  dsh-arkhub manual set "<VNC 地址>"   配上（地址带密码，只写本机 ~/.dsh/arkhub/manual.json）
+  dsh-arkhub manual start  起本机转发（manual.json 里配了 start 才有用）
+  dsh-arkhub manual clear  撤掉
 
 安装参数：
   --profile <名字>   指定 profile（默认自动挑：装了 dsh-world 的那个）
@@ -575,6 +580,97 @@ async function commandLine(args) {
   }
 }
 
+/**
+ * 人工接管：把 VM 的桌面接到人眼前（浏览器里的一个窗口，鼠标键盘直通）。
+ *
+ * 地址里通常带着 VNC 密码，所以只写本机文件（~/.dsh/arkhub/manual.json）——
+ * 界面和仓库里都不出现。世界控制台那张卡上的按钮只指向插件的一次跳转。
+ */
+async function commandManual(args) {
+  const home = args.home && args.home !== true ? resolve(String(args.home)) : dshHome();
+  const action = String(args._[1] || 'show').toLowerCase();
+
+  if (action === 'show') {
+    const info = await describeManual({ home });
+    const manual = readManual(home);
+    if (!info.configured) {
+      console.log(`${mark(false)} 人工接管    没配${info.note ? `：${info.note}` : ''}`);
+      console.log('   配上        dsh-arkhub manual set "<VNC 地址>"');
+      return 0;
+    }
+    console.log(`${mark(info.reachable)} 人工接管    ${info.label} → ${info.target}${info.reachable ? '（在跑）' : '（这个端口现在没人应答）'}`);
+    console.log(`   文件        ${manual.file}（只在本机，不进仓库）`);
+    if (manual.start.length) console.log(`   转发命令    ${manual.start.join(' ')}`);
+    console.log('   打开        世界控制台 QQ 卡上的「人工接管」，或浏览器开 /dsh-arkhub/manual');
+    return 0;
+  }
+
+  if (action === 'set') {
+    const url = String(args._[2] || '');
+    if (!url) {
+      console.error('用法：dsh-arkhub manual set "http://127.0.0.1:6080/vnc.html?autoconnect=1&resize=scale&password=…"');
+      return 1;
+    }
+    // --start 可以是 JSON 数组（路径带空格时用这个），也可以是空格分隔的一行
+    const raw = args.start;
+    let start = [];
+    if (typeof raw === 'string' && raw.trim()) {
+      if (raw.trim().startsWith('[')) {
+        try {
+          const parsed = JSON.parse(raw);
+          start = Array.isArray(parsed) ? parsed.map(String) : [];
+        } catch {
+          console.error('--start 的 JSON 数组写坏了（形如 \'["python","-m","websockify",…]\'）');
+          return 1;
+        }
+      } else {
+        start = raw.trim().split(/\s+/).filter(Boolean);
+      }
+    } else if (Array.isArray(raw)) {
+      start = raw.map(String);
+    }
+    try {
+      const file = writeManual(home, {
+        url,
+        label: typeof args.label === 'string' ? args.label : '虚拟机画面',
+        note: typeof args.note === 'string' ? args.note : '',
+        start,
+      });
+      const info = await describeManual({ home });
+      console.log(`${mark(info.reachable)} 地址        ${info.target}${info.reachable ? '（在跑，点开就是桌面）' : '（这个端口现在没人应答）'}`);
+      console.log(`${mark(true)} 文件        ${file}（只在本机，不进仓库）`);
+      if (start.length) console.log(`${mark(true)} 转发命令    ${start.join(' ')}（没起的时候面板上那个按钮会用它）`);
+      console.log('   面板        世界控制台 → 设置 → 接入 → QQ：卡片上多一行「人工接管」');
+      return 0;
+    } catch (error) {
+      console.error(`没配上：${error.message}`);
+      return 1;
+    }
+  }
+
+  if (action === 'start') {
+    const result = startRelay({ home });
+    if (!result.ok) {
+      console.error(`没起来：${result.reason}`);
+      return 1;
+    }
+    await new Promise(done => setTimeout(done, 1500));
+    const info = await describeManual({ home });
+    console.log(`${mark(info.reachable)} 转发        ${result.command}`);
+    if (!info.reachable) console.log('   起了但端口还没通：等几秒再 dsh-arkhub manual 看看（转发自己的日志在它自己那边）');
+    return info.reachable ? 0 : 1;
+  }
+
+  if (action === 'clear' || action === 'unset') {
+    const file = clearManual(home);
+    console.log(`${mark(true)} 已撤掉      ${file}`);
+    return 0;
+  }
+
+  console.error('用法：dsh-arkhub manual [show|set <地址>|start|clear]');
+  return 1;
+}
+
 /** 只看：两条线各自活没活、现在用的是哪条。 */
 async function commandLines(args) {
   const home = args.home && args.home !== true ? resolve(String(args.home)) : dshHome();
@@ -610,6 +706,7 @@ async function main() {
   if (command === 'bridge') return commandBridge(args);
   if (command === 'line') return commandLine(args);
   if (command === 'lines') return commandLines(args);
+  if (command === 'manual' || command === 'vnc') return commandManual(args);
 
   console.error(`不认识的命令：${command}`);
   console.log(HELP);

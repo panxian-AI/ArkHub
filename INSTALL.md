@@ -175,6 +175,40 @@ dsh-world / qq-bridge 原来的机制存在真机本地**，本插件不另存�
 
 ---
 
+## 人工接管：VM 的桌面搬进浏览器
+
+watchdog 只认它收录过的窗口形状（快捷登录、二维码、更新弹窗、掉线提示）。没收录的界面 ——
+设备锁、新版验证页、风控提示 —— 只能让人自己用鼠标键盘点。做法是 VM 里跑 x11vnc，
+宿主侧起一个 web 转发（websockify + noVNC），浏览器里就是一个能点能敲的窗口。
+
+VM 侧（在 ArkLink 仓库里）：
+
+```bash
+sudo tools/vm-manual/install.sh      # 装 x11vnc、绑 :99、systemd 自启、打印宿主 NAT 命令
+```
+
+宿主侧（本机）配一次地址：
+
+```bash
+node bin/dsh-arkhub.mjs manual set "http://127.0.0.1:6080/vnc.html?autoconnect=1&resize=scale&password=…" \
+  --start '["python","-m","websockify","6080","127.0.0.1:5903","--web","…/novnc"]'
+node bin/dsh-arkhub.mjs manual       # 看配了没、通没通、转发命令是什么
+```
+
+然后世界控制台 → 设置 → 接入 → QQ 卡上就多一行「人工接管（鼠标键盘直接操作虚拟机）」，
+点一下开画面。转发没起的时候，点它会顺手拉一次（`--start` 那条命令），
+拉不起来就给一张说明页，页面上还有按钮可以再点一次。
+
+几点值得知道：
+
+- **地址通常带着 VNC 密码**，所以它只写进本机 `~/.dsh/arkhub/manual.json`（权限 600），
+  界面拿到的只有「配了没、通没通、目标 host:port」，接口里连 `url` 字段都不返回；
+- 打开的是 `/dsh-arkhub/manual` 这个跳转，通了就 302 到真地址；
+- `manual clear` 撤掉；`manual start` 单独起一次转发；
+- 画面里别点「退出登录」—— 收发会全断，得重新扫码。
+
+---
+
 ## 接上收信与富消息（VM 里装 SnowLuma）
 
 ArkLink 在无头 Linux 上**只能发、不能收**，而且只会「打字」——语音、引用、图片都出不去。
