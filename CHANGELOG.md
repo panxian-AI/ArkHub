@@ -1,5 +1,25 @@
 # 更新日志
 
+## 0.5.0 — 2026-11-15
+
+收信接上了，语音和引用也回来了。之前门面只会「替 ArkLink 打字」：ArkLink 在无头
+Linux 上收不到消息（hook 注入撞墙），也发不了语音和引用（x11 只会点输入框）。
+解决办法不是再写一套协议，而是把 SnowLuma 装进同一个 VM —— 它注入在运行期，
+能进得去，而且对外的就是标准 OneBot。
+
+- 新增 `lib/snowluma.js`：WS 订阅收信 + HTTP 转发送信。断线自己退避重连，
+  连不上只是一条日志，文字照发。
+- 门面（bridge 模式）：收信来自 SnowLuma，事件原样转给 qq-bridge；`send_*` 先走
+  SnowLuma（语音 `record`、引用 `reply`、图片这些段原样进协议层），失败才退回 ArkLink 只发文字。
+  `get_login_info` / `get_group_list` / `get_friend_list` 在 SnowLuma 在线时用它的真实数据。
+  两条上游按 `message_id` 去重（5 分钟窗口），同一条不会进两次。
+- 会话模式（session）也吃同一条收信：`itemFromEvent()` 把 OneBot 事件转成 ArkLink 那种
+  item，白名单/叫她的判据/攒批全都复用，不另写一份。
+- 新增 `POST /dsh-arkhub/ingest`：ArkBot 兜底入口。`tools/arkbot-arkhub/arkhub_fallback.py`
+  是配套插件 —— ArkBot 自己连一份协议端，收到消息 POST 进来，门面按 id 去重。
+- 状态接口带上 `snowluma`（connected / selfId / received / lastEventAt）和
+  `sentVia` / `eventVia`，排障时一眼看出这条消息是哪条链路来的。
+
 ## 0.4.0 — 2026-11-15
 
 一键换桥。会话模式下世界控制台那张 QQ 卡永远是「未运行」；要让它显示真的，

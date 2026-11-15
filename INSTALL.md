@@ -89,7 +89,7 @@ node bin/dsh-arkhub.mjs uninstall
 
 想让它显示真的（桥在跑、上次收包、每个入口绑了哪间会话、主动聊天统计），就换成门面模式：
 本插件只做 OneBot 服务端，会话由 qq-bridge 按它自己的机制（`state/sessions.json` 按
-`private:<QQ>` / `group:<群号>` 绑定）来投。**SnowLuma 不再需要参与。**
+`private:<QQ>` / `group:<群号>` 绑定）来投。**收信要另外接一条**——见下一节。
 
 一条命令换过去，一条命令退回来：
 
@@ -116,8 +116,57 @@ dsh-world / qq-bridge 原来的机制存在真机本地**，本插件不另存�
 
 > 门面能听懂的动作：`get_login_info`、`get_status`、`get_version_info`、
 > `get_group_list`、`get_friend_list`、`send_msg`、`send_private_msg`、`send_group_msg`。
-> 别的动作回 `retcode 1404`（桥会自己降级，不会崩）。图片、语音、表情这类富媒体暂不支持，
-> 发出去会被降级成纯文本。
+> `get_login_info` / `get_group_list` / `get_friend_list` 在 SnowLuma 在线时用它的真实数据；
+> 别的动作回 `retcode 1404`（桥会自己降级，不会崩）。
+
+---
+
+## 接上收信与富消息（VM 里装 SnowLuma）
+
+ArkLink 在无头 Linux 上**只能发、不能收**，而且只会「打字」——语音、引用、图片都出不去。
+这两件事在协议层都是现成的，所以把 SnowLuma 装进同一个 VM，让它出收信和富消息，
+ArkLink 继续负责发文字。两个都不是必须：SnowLuma 不在时插件照旧能发文字，只是收不到。
+
+VM 里一条命令（脚本在 ArkLink 仓库 `tools/snowluma/`）：
+
+```bash
+bash install.sh
+```
+
+它会把 Node 24、SnowLuma lite 包、`hookAutoLoad: true`、systemd 单元、`0.0.0.0` 监听
+都弄好，最后打印宿主机要填的两个端口和两个 token。宿主机补两条 NAT 转发
+（**别用 3100**，那是 qq-bridge 的控制台，抢了会静默失效）：
+
+```bash
+VBoxManage controlvm arklink natpf1 "snowluma-http,tcp,127.0.0.1,3102,,3000"
+VBoxManage controlvm arklink natpf1 "snowluma-ws,tcp,127.0.0.1,3101,,3001"
+```
+
+然后装配行补一段（`cordis.patch.yml`，DSH 热重载，不用重启）：
+
+```yaml
+        snowluma:
+          enabled: true
+          httpUrl: http://127.0.0.1:3102
+          wsUrl: ws://127.0.0.1:3101
+          httpToken: <install.sh 打印的 httpToken>
+          wsToken: <install.sh 打印的 wsToken>
+```
+
+自检（三处都该对得上）：
+
+```bash
+curl -s http://127.0.0.1:3010/api/status
+#   "sentVia":"snowluma"、"eventVia":"snowluma"、"snowluma":{"connected":true,...}
+```
+
+`eventVia` 是 `snowluma` 说明收信走的是它；`sentVia` 是 `snowluma` 说明发送（含语音/引用）
+走的是它。两个都空 = 它没连上，文字仍会退回 ArkLink。
+
+**兜底（可选）**：`tools/arkbot-arkhub/` 里有个 ArkBot 插件，让 ArkBot 独立再连一份协议端，
+把消息 `POST /dsh-arkhub/ingest` 塞进门面。门面按 `message_id` 去重，同一条不会进两次。
+「协议层彻底不可用也还能收」需要官方机器人通道（`official_qq`，群聊只在被 @ 时收到），
+要开放平台的 app_id / app_secret。
 
 ---
 
