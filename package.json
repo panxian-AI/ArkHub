@@ -45,7 +45,7 @@
     }
   },
   "scripts": {
-    "test": "node --test test/text.test.js test/update.test.js test/install.test.js test/onebot.test.js test/switch.test.js test/channel.test.js test/lines.test.js test/snowluma.test.js test/manual.test.js"
+    "test": "node --test test/text.test.js test/update.test.js test/install.test.js test/onebot.test.js test/switch.test.js test/channel.test.js test/lines.test.js test/snowluma.test.js test/manual.test.js test/manual-route.test.js"
   },
   "repository": {
     "type": "git",
