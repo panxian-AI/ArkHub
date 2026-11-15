@@ -93,7 +93,8 @@ curl -X POST http://127.0.0.1:<端口>/dsh-arkhub/config \
 桥发出去的 `send_group_msg` / `send_private_msg` 翻译回 ArkLink 的 `/api/v1/send`。
 桥那边的巡检、会话绑定、工具、主动聊天的账一件没改 —— 所以卡片上的数都是真的。
 
-切过去的步骤见 [INSTALL.md](INSTALL.md#换成门面模式世界控制台那张-qq-卡才有数)。
+一条命令切过去：`node bin/dsh-arkhub.mjs bridge use`；一条命令退回来：`bridge rollback`。
+细节见 [INSTALL.md](INSTALL.md#换成门面模式世界控制台那张-qq-卡才有数)。
 
 ## 和 dsh-world 的关系
 

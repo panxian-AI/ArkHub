@@ -36,6 +36,7 @@ import {
 import { detectArklink, detectWorld } from '../lib/detect.js';
 import { normalizeConfig } from '../lib/config.js';
 import { QqLink } from '../lib/arklink.js';
+import { bridgeSwitchAndRestart } from '../lib/switch.js';
 import { listDays, localDay, readDay, readState, sampleOnce, statePath, summarize } from '../lib/monitor.js';
 
 const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -49,8 +50,10 @@ const HELP = `dsh-arkhub — 把 DSH 里的角色接上 QQ
   dsh-arkhub doctor       体检：逐项告诉你哪里没通、怎么修
   dsh-arkhub monitor      盯稳定性：收到的消息 + 存活时间，一直记到 Ctrl+C
   dsh-arkhub monitor --once            采一次就走（看通不通）
-  dsh-arkhub monitor --report          看今天（和前两天）的总结
+  dsh-arkhub monitor --report          看今天（和前两天的总结）
   dsh-arkhub monitor --report --push 10001   看完直接推到 QQ，不问你
+  dsh-arkhub bridge use    换成门面模式：世界控制台的 QQ 卡显示真的桥
+  dsh-arkhub bridge rollback  退回会话模式（恢复换桥前的桥配置）
 
 安装参数：
   --profile <名字>   指定 profile（默认自动挑：装了 dsh-world 的那个）
@@ -480,6 +483,38 @@ async function commandMonitor(args) {
   return 0;
 }
 
+/** 换桥：bridge use / bridge rollback。三处改动一条命令做完，rollback 一条退回。 */
+async function commandBridge(args) {
+  const action = String(args._[1] || '');
+  if (action !== 'use' && action !== 'rollback') {
+    console.error('用法：dsh-arkhub bridge use ｜ dsh-arkhub bridge rollback');
+    return 1;
+  }
+  const home = args.home && args.home !== true ? resolve(String(args.home)) : dshHome();
+  const use = action === 'use';
+  try {
+    const { port } = await bridgeSwitchAndRestart({
+      home,
+      use,
+      profile: args.profile && args.profile !== true ? String(args.profile) : '',
+      logger: console,
+    });
+    console.log('');
+    if (use) {
+      console.log(`${mark(true)} 门面        127.0.0.1:${port}（OneBot，qq-bridge 的上游已指到这里）`);
+      console.log(`${mark(true)} 会话        由 qq-bridge 按它自己的机制投（真机本地 sessions.json）`);
+      console.log(`   验证       世界控制台 → 设置 → 接入 → QQ：卡片应显示运行中、上次收包在走；`);
+      console.log(`              或 node bin/dsh-arkhub.mjs status 看「门面 连着 N 个客户端」。`);
+    } else {
+      console.log(`${mark(true)} 已退回      会话模式（本插件直接把消息投进她的会话）`);
+    }
+    return 0;
+  } catch (error) {
+    console.error(`换桥失败：${error.message}`);
+    return 1;
+  }
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   const args = parseArgs(argv);
@@ -494,6 +529,7 @@ async function main() {
   if (command === 'status') return commandStatus(args);
   if (command === 'doctor' || command === 'check') return commandDoctor(args);
   if (command === 'monitor' || command === 'watch') return commandMonitor(args);
+  if (command === 'bridge') return commandBridge(args);
 
   console.error(`不认识的命令：${command}`);
   console.log(HELP);

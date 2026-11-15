@@ -1,5 +1,19 @@
 # 更新日志
 
+## 0.4.0 — 2026-11-15
+
+一键换桥。会话模式下世界控制台那张 QQ 卡永远是「未运行」；要让它显示真的，
+得手工改三处配置（装配行、桥的 config.json、重启桥），错一步就静默失效。
+
+- 新增 `bridge use` / `bridge rollback`：装配行 `bridge.enabled` 翻转、
+  桥的 `snowluma.httpUrl` / `wsUrl` 指向门面、原配置存 `.dsh-arkhub.bak`、
+  打桥自己的 `/api/restart` 重连，全是一条命令。
+- 关键坑入库：桥的 `followDiscoveredEndpoint` 必须关——它的自愈机制默认会
+  「发现」真实 SnowLuma 并悄悄连回去、把配置改回来（bridge.js 的端点跟随）。
+- 兼容 0.2.x 装配行：老块没有 `bridge:` 段时自动补一段。
+- 世界控制台的 halt/start 门实测不可靠（halt 打断连接、start 只看活着没），
+  重启改走桥自己的 `/api/restart`。
+
 ## 0.3.2 — 2026-11-15
 
 新增「ArkLink 收信」体检与排查手册。起因：发送一切正常，但 ArkLink 一条消息都收不到

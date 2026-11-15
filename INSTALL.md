@@ -91,31 +91,24 @@ node bin/dsh-arkhub.mjs uninstall
 本插件只做 OneBot 服务端，会话由 qq-bridge 按它自己的机制（`state/sessions.json` 按
 `private:<QQ>` / `group:<群号>` 绑定）来投。**SnowLuma 不再需要参与。**
 
-三步：
+一条命令换过去，一条命令退回来：
 
 ```bash
-# 1. 让本插件开门面（OneBot 的 httpUrl / wsUrl 都指向 127.0.0.1:3010）
-node bin/dsh-arkhub.mjs install --bridge
+node bin/dsh-arkhub.mjs bridge use       # 换成门面模式
+node bin/dsh-arkhub.mjs bridge rollback  # 退回会话模式（恢复换桥前的桥配置）
 ```
 
-```bash
-# 2. 把桥的上游指向门面（先停桥，改完再起；桥只在启动时读 config.json）
-#    ~/.dsh/qq-bridge/config.json
-#      snowluma.httpUrl  → http://127.0.0.1:3010
-#      snowluma.wsUrl    → ws://127.0.0.1:3010
-#      snowluma.accessToken → 与插件里的 bridge.token 一致（插件留空则随便填/留空）
-#    重启桥：世界控制台 QQ 卡上的「重启」，或
-curl -X POST http://127.0.0.1:62560/dsh-world/qq/halt -H 'x-dsh-world: 1' -d '{}'
-curl -X POST http://127.0.0.1:62560/dsh-world/qq/start -H 'x-dsh-world: 1' -d '{}'
-```
+`bridge use` 一口气做三件事：
 
-3. 重启 DSH，然后看 `node bin/dsh-arkhub.mjs status`：
+1. 把装配行里的 `bridge.enabled` 翻成 `true`（DSH 热重载，门面 :3010 当场起来）；
+2. 把 `~/.dsh/qq-bridge/config.json` 的 `snowluma.httpUrl` / `wsUrl` 指向 `127.0.0.1:3010`、
+   `accessToken` 对齐，并关掉 `followDiscoveredEndpoint` —— 这条最关键：桥的自愈机制默认会
+   「发现」真实 SnowLuma 并悄悄连回去、把配置改回来，不关等于没换；
+   原配置先存一份 `config.json.dsh-arkhub.bak`（rollback 就是从这里还原）；
+3. 打桥自己的 `/api/restart` 让它按新配置重连（世界控制台的 halt/start 门不顶用——
+   halt 会把连接打断，start 只看「活着没」，桥喘着气就回 already-running）。
 
-```
-接法            门面模式（OneBot → qq-bridge 投会话）
-门面            127.0.0.1:3010 连着 1 个客户端
-                事件 0 / 已发 0 / 游标 3
-```
+跑完看 `node bin/dsh-arkhub.mjs status`：
 
 `连着 1 个客户端` 就是桥连上来了。此时世界控制台那张卡上的「上次收包」会每 30 秒走一次
 （那是门面发的心跳），绑定的会话就是 `sessions.json` 里那几条 —— 也就是说，**对话还是按
