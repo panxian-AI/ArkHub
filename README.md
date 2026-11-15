@@ -80,23 +80,30 @@ curl -X POST http://127.0.0.1:<端口>/dsh-arkhub/config \
   -d '{"autoReply": false, "allowPrivate": ["10001"]}'
 ```
 
-## 两种接法（选一种，别同时开）
+## 接法：默认门面模式（只做收发管道）
 
-同时开会把每条回复发两遍。由 `bridge.enabled` 决定走哪条：
+**默认就是门面模式**（`bridge.enabled: true`）。门面干的事只有两件：
 
-| | `bridge.enabled: false`（默认）| `bridge.enabled: true` |
+- 收：把 ArkLink 的消息流翻译成 OneBot 事件，从 `:3010` 推给 qq-bridge；
+- 发：把桥发出去的 `send_group_msg` / `send_private_msg` 翻译成 ArkLink 的 `/api/v1/send`。
+
+**它不决定说什么。** 回不回、回什么、发给谁，全由别的部件定 —— DSH 那头的会话 / 人格 / 工具，
+以及 qq-bridge 自己的会话绑定（`state/sessions.json` 按 `private:<QQ>` / `group:<群号>` 一条一条绑）。
+门面自己一个字都不生成。桥那边的巡检、会话绑定、工具、主动聊天的账也一件没改，所以世界控制台
+那张 QQ 卡上的数都是真的。
+
+另一种「会话模式」（`bridge.enabled: false`，本插件自己把消息投进她的会话）只在没装桥、
+单条线自用的时候用，装的时候显式 `--no-bridge` 才切过去。**两种接法不能同时开**，否则每条回复发两遍。
+
+| | `bridge.enabled: true`（默认，门面）| `bridge.enabled: false`（会话模式，兜底）|
 |---|---|---|
-| 谁把消息投进会话 | 本插件自己 | qq-bridge（照搬它的机制）|
-| 会话绑定存哪 | `worlds/<id>/life.json` 的 `homeSessionId` | `~/.dsh/qq-bridge/state/sessions.json`，按 `private:<QQ>` / `group:<群号>` 一条一条绑 |
-| 世界控制台左下角那张 QQ 卡 | 不读本插件，会是「未运行」 | 真实：桥状态、上次收包、会话绑定、主动聊天统计 |
-| 需要 qq-bridge | 不需要 | 需要（它本来就在） |
+| 谁把消息投进会话 | qq-bridge（照搬它的机制）| 本插件自己 |
+| 会话绑定存哪 | `~/.dsh/qq-bridge/state/sessions.json`，按 `private:<QQ>` / `group:<群号>` 一条一条绑 | `worlds/<id>/life.json` 的 `homeSessionId` |
+| 世界控制台左下角那张 QQ 卡 | 真实：桥状态、上次收包、会话绑定、主动聊天统计 | 不读本插件，会是「未运行」 |
+| 需要 qq-bridge | 需要（它本来就在）| 不需要 |
 
-门面模式做的事很少：把 ArkLink 的消息流翻译成 OneBot 事件，从 `:3010` 推给 qq-bridge；
-桥发出去的 `send_group_msg` / `send_private_msg` 翻译回 ArkLink 的 `/api/v1/send`。
-桥那边的巡检、会话绑定、工具、主动聊天的账一件没改 —— 所以卡片上的数都是真的。
-
-一条命令切过去：`node bin/dsh-arkhub.mjs bridge use`；一条命令退回来：`bridge rollback`。
-细节见 [INSTALL.md](INSTALL.md#换成门面模式世界控制台那张-qq-卡才有数)。
+换线（哪条线接进来）：`node bin/dsh-arkhub.mjs line vm` ／ `line windows`；旧名字
+`bridge use` / `bridge rollback` 行为一致。细节见 [INSTALL.md](INSTALL.md#换成门面模式世界控制台那张-qq-卡才有数)。
 
 ## 和 dsh-world 的关系
 

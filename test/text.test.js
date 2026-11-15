@@ -23,6 +23,13 @@ test('默认值齐全，坏值被拉回安全侧', () => {
   assert.equal(c.update.check, true);
 });
 
+test('默认接法是门面：bridge.enabled 不给就是开着', () => {
+  assert.equal(normalizeConfig({}).bridge.enabled, true);
+  assert.equal(normalizeConfig({ qq: {} }).bridge.enabled, true);
+  // 显式关掉才是会话模式（--no-bridge）
+  assert.equal(normalizeConfig({ bridge: { enabled: false } }).bridge.enabled, false);
+});
+
 test('describeConfig 不泄露 token 明文', () => {
   const c = normalizeConfig({ arklink: { token: 'secret-token' } });
   const view = describeConfig(c);

@@ -73,8 +73,8 @@ const HELP = `dsh-arkhub — 把 DSH 里的角色接上 QQ
   --private <a,b>    允许私聊的 QQ，逗号分隔（默认取 ArkLink 的允许列表）
   --groups <a,b>     允许的群，逗号分隔（默认取 ArkLink 的允许列表）
   --no-reply         装好先只收不回（观察用）
-  --bridge           门面模式：只做 OneBot，让 qq-bridge 按它的机制投会话
-                     （世界控制台那张 QQ 卡才是真的；见 INSTALL.md）
+  --no-bridge        退回会话模式：本插件自己投会话（默认是门面模式，只做收发管道，
+                     回什么由 DSH 那头和桥的会话绑定决定；见 INSTALL.md）
   --json             机器可读输出
 
 装完需要重启 DSH 才生效（profile 是启动时读的）。`;
@@ -148,7 +148,9 @@ async function buildConfig(args, home) {
         groupKeywords: ['大肥鱼', '鲸鱼', '小鲸鱼', '在吗'],
       },
       session: { worldId: world.worldId },
-      bridge: { enabled: args.bridge === true },
+      // 门面是默认接法：本插件只做收发管道，回什么由 DSH 那头和桥的会话绑定决定。
+      // 要退回「本插件自己投会话」的老路，装的时候显式 --no-bridge。
+      bridge: { enabled: args['no-bridge'] !== true },
     },
   };
 }
@@ -226,7 +228,7 @@ async function commandInstall(args) {
   console.log(`${mark(config.qq.allowPrivate.length + config.qq.allowGroups.length > 0)} 白名单       私聊 ${config.qq.allowPrivate.join(' ') || '无'} / 群 ${config.qq.allowGroups.join(' ') || '无'}`);
   console.log(`${mark(Boolean(world.homeSessionId))} 角色         worldId=${world.worldId}${world.homeSessionId ? ` 会话 ${world.homeSessionId.slice(0, 18)}…` : '（还没建会话，首次说话时会自己建）'}`);
   console.log(`${mark(config.qq.autoReply)} 自动回复     ${config.qq.autoReply ? '开（收到就回）' : '关（只收不回，观察用）'}`);
-  console.log(`${mark(true)} 接法         ${config.bridge.enabled ? `门面模式：OneBot 在 127.0.0.1:${config.bridge.port}，会话由 qq-bridge 投` : '会话模式：本插件直接把消息投进她的会话'}`);
+  console.log(`${mark(true)} 接法         ${config.bridge.enabled ? `门面（默认）：只做收发管道 —— OneBot 在 127.0.0.1:${config.bridge.port}，说什么由 DSH 那头和桥的会话绑定决定` : '会话模式：本插件直接把消息投进她的会话（--no-bridge）'}`);
 
   if (!config.qq.allowPrivate.length && !config.qq.allowGroups.length) {
     console.log('');
@@ -343,7 +345,7 @@ async function commandStatus(args) {
   console.log(`${pad('角色')}worldId=${world.worldId}${world.homeSessionId ? ` 会话 ${world.homeSessionId.slice(0, 18)}…` : ' 未绑定'}`);
   if (live) {
     if (out.live.mode === 'bridge') {
-      console.log(`${pad('接法')}门面模式（OneBot → qq-bridge 投会话）`);
+      console.log(`${pad('接法')}门面（默认）：只做收发管道，OneBot → qq-bridge 投会话`);
       console.log(`${pad('门面')}127.0.0.1:${out.live.bridgePort} 连着 ${out.live.clients ?? 0} 个客户端`);
       console.log(`${pad('')}事件 ${out.live.events ?? 0} / 已发 ${out.live.sent ?? 0} / 游标 ${out.live.cursor}`);
     } else {

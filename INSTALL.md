@@ -108,14 +108,15 @@ node bin/dsh-arkhub.mjs uninstall
 
 ---
 
-## 换成门面模式（世界控制台那张 QQ 卡才有数）
+## 门面模式（默认接法，世界控制台那张 QQ 卡才有数）
 
-默认的「会话模式」是本插件自己把消息投进她的会话 —— 简单，但世界控制台（设置 → 世界控制台 →
-接入 → QQ）那张卡读的是 **qq-bridge**，所以它会显示「未运行」。
+装完就是门面模式。本插件只做 OneBot 服务端（`:3010`），**只负责收发**：把 ArkLink 的消息流
+翻成 OneBot 事件推给 qq-bridge，把桥发出去的 `send_*_msg` 翻回 ArkLink 的 `/api/v1/send`。
+发什么由别的部件决定 —— DSH 那头的会话 / 人格 / 工具，加上 qq-bridge 按它自己的机制
+（`state/sessions.json` 按 `private:<QQ>` / `group:<群号>` 绑定）投进哪间会话。**收信要另外接一条**
+—— 见下一节。
 
-想让它显示真的（桥在跑、上次收包、每个入口绑了哪间会话、主动聊天统计），就换成门面模式：
-本插件只做 OneBot 服务端，会话由 qq-bridge 按它自己的机制（`state/sessions.json` 按
-`private:<QQ>` / `group:<群号>` 绑定）来投。**收信要另外接一条**——见下一节。
+想退回「本插件自己投会话」的会话模式，装的时候加 `--no-bridge`（没装桥、单条线自用时才用）。
 
 ### 概念：一条「线」= 一个号 + 桥的上游
 
@@ -153,7 +154,8 @@ node bin/dsh-arkhub.mjs line windows   # 换回原桥（本机 SnowLuma 直连�
 
 `line vm` 一口气做三件事：
 
-1. 把装配行里的 `bridge.enabled` / `channel.enabled` 翻成 `true`（DSH 热重载，门面 :3010 当场起来）；
+1. 把装配行里的 `bridge.enabled` / `channel.enabled` 翻成 `true`（DSH 热重载，门面 :3010 当场起来；
+   默认已经是 `true`，这步幂等，只在 `--no-bridge` 装过或手工关过时才有事做）；
 2. 把 `~/.dsh/qq-bridge/config.json` 的 `snowluma.httpUrl` / `wsUrl` 指向 `127.0.0.1:3010`、
    `accessToken` 对齐，并关掉 `followDiscoveredEndpoint` —— 这条最关键：桥的自愈机制默认会
    「发现」真实 SnowLuma 并悄悄连回去、把配置改回来，不关等于没换；
