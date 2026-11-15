@@ -1,5 +1,18 @@
 # 更新日志
 
+## 0.6.2 — 2026-11-15
+
+- **白名单优化**：
+  - owner 免检：配置里写明的 `ownerQQ`（或本账号）私聊直接过、群里不用 @ 也算在叫他
+    （群本身仍须在群白名单里，静默照样管得住）。
+  - 被拦名单：最近被白名单冷落的人（号、群/私聊、原因、说了什么、次数）进
+    `/dsh-arkhub/status` 的 `channel.blockedRecent`，想把谁放进来照着 id 加就行。
+  - 配置落盘：HTTP `/config` 改的白名单/开关同步写回 cordis.patch.yml 的标记块，
+    DSH 重启不再丢；写不进去不影响生效，回执里带 `persisted` 说明。
+  - `buildPatchBlock` 补上 `channel:` 段并跟随实际配置值（pollMs / groupTrigger /
+    contextMessages / batchQuietMs），落盘不会把「待命」或门面开关冲掉。
+  - 白名单输入去重。
+
 ## 0.6.1 — 2026-11-15
 
 - **双线常驻**：门面（:3010）一旦开着，换线就不再动装配行 —— VM 门面和本机真 SnowLuma

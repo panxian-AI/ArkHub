@@ -195,3 +195,73 @@ test('全新 DSH：appendWorldBlock 补一段 dsh-world，桥目录用绝对路�
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+test('persistConfig：把运行中改过的白名单写回装配行，channel/bridge 状态不冲掉', async () => {
+  const { persistConfig } = await import('../lib/dsh-home.js');
+  const { normalizeConfig } = await import('../lib/config.js');
+
+  const home = mkdtempSync(join(tmpdir(), 'arkhub-persist-'));
+  try {
+    const profDir = join(home, 'profiles', 'p1');
+    mkdirSync(profDir, { recursive: true });
+    writeFileSync(join(profDir, 'package.json'), JSON.stringify({
+      name: 'p1',
+      dsh: { profile: { bundles: ['dsh-arkhub'] } },
+      dependencies: { 'dsh-arkhub': 'link:somewhere' },
+    }), 'utf8');
+    const config = normalizeConfig({
+      qq: { accountUin: '123456789', ownerQQ: '123456789', allowPrivate: ['123456789'], allowGroups: ['987654321'] },
+      bridge: { enabled: true, port: 3010 },
+    });
+    config.channel.enabled = false; // 模拟「待命」状态（原桥那条线）
+    writeFileSync(join(profDir, 'cordis.patch.yml'), applyPatchBlock(SAMPLE, buildPatchBlock(config)), 'utf8');
+
+    // 运行中改白名单
+    config.qq.allowPrivate = ['123456789', '100010002'];
+    const saved = persistConfig({ home, config });
+    assert.equal(saved.ok, true);
+    assert.equal(saved.changed, true);
+
+    const text = readFileSync(join(profDir, 'cordis.patch.yml'), 'utf8');
+    assert.match(text, /allowPrivate: \['123456789', '100010002'\]/);
+    // 待命状态不能被冲掉；门面开关也要原样
+    assert.match(text, /enabled: false/);
+    assert.match(text, new RegExp('        channel:\\n          enabled: false'));
+    assert.match(text, new RegExp('        bridge:\\n          enabled: true'));
+    // 再落一次盘应该报「没变化」而不是重写
+    const again = persistConfig({ home, config });
+    assert.equal(again.ok, true);
+    assert.equal(again.changed, false);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('persistConfig：没装本插件的 profile 不落盘', async () => {
+  const { persistConfig } = await import('../lib/dsh-home.js');
+  const home = mkdtempSync(join(tmpdir(), 'arkhub-persist-none-'));
+  try {
+    const profDir = join(home, 'profiles', 'empty');
+    mkdirSync(profDir, { recursive: true });
+    writeFileSync(join(profDir, 'package.json'), JSON.stringify({ name: 'empty', dsh: { profile: { bundles: [] } } }), 'utf8');
+    const saved = persistConfig({ home, config: {} });
+    assert.equal(saved.ok, false);
+    assert.match(saved.reason, /没装|标记块/);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('buildPatchBlock：snowluma 段要带上（落盘不能把收信上游丢了）', async () => {
+  const { normalizeConfig } = await import('../lib/config.js');
+  const config = normalizeConfig({
+    snowluma: { httpToken: 'tok-http', wsToken: 'tok-ws' },
+    qq: { accountUin: '123456789' },
+  });
+  const block = buildPatchBlock(config);
+  assert.match(block, new RegExp('        snowluma:\\n          enabled: true'));
+  assert.match(block, new RegExp("          httpToken: 'tok-http'"));
+  assert.match(block, new RegExp("          wsToken: 'tok-ws'"));
+  assert.match(block, /httpUrl: http:\/\/127\.0\.0\.1:3102/);
+  assert.match(block, /wsUrl: ws:\/\/127\.0\.0\.1:3101/);
+});

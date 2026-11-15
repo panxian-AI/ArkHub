@@ -10,6 +10,7 @@ const cfg = extra => normalizeConfig({ qq: { allowPrivate: ['10001'], allowGroup
 test('白名单接受数组和逗号串，空数组就是谁都不理', () => {
   assert.deepEqual(qqNumbers(['10001', ' 10002 ', ''], 'x'), ['10001', '10002']);
   assert.deepEqual(qqNumbers('10001, 10002', 'x'), ['10001', '10002']);
+  assert.deepEqual(qqNumbers(['10001', '10001', ' 10001 '], 'x'), ['10001']);
   assert.deepEqual(qqNumbers(undefined, 'x'), []);
   assert.throws(() => qqNumbers(['abc'], 'x'), /不是 QQ 号/);
 });
@@ -67,6 +68,29 @@ test('群号不在白名单，哪怕 @ 了也不接', () => {
   const config = cfg();
   const out = gate({ chat_type: 2, peer_uid: '88888', text: '@大肥鱼' }, config, { nickname: '大肥鱼' });
   assert.equal(out.ok, false);
+});
+
+test('owner 私聊免检：不在白名单里也接', () => {
+  const config = cfg({ qq: { allowPrivate: ['10001'], allowGroups: ['20002'], ownerQQ: '30003' } });
+  assert.equal(gate({ chat_type: 1, peer_uid: '30003', sender_uid: '30003', text: '在吗' }, config).ok, true);
+  // 别人还是照旧被拦
+  assert.equal(gate({ chat_type: 1, peer_uid: '99999', sender_uid: '99999', text: '在吗' }, config).ok, false);
+  // 没配 owner 时不放行（ownerQQ 空且 uin 没传）
+  const noOwner = normalizeConfig({ qq: { allowPrivate: ['10001'], allowGroups: ['20002'], ownerQQ: '' } });
+  assert.equal(gate({ chat_type: 1, peer_uid: '30003', sender_uid: '30003', text: '在吗' }, noOwner).ok, false);
+});
+
+test('owner 在群里不用 @，但群本身得在白名单里', () => {
+  const config = cfg({ qq: { allowPrivate: ['10001'], allowGroups: ['20002'], ownerQQ: '30003' } });
+  const said = text => gate({ chat_type: 2, peer_uid: '20002', sender_uid: '30003', text }, config, { nickname: '大肥鱼', uin: '30003' });
+  assert.equal(said('今天天气不错').ok, true);
+  // 群不在白名单：owner 说话也不开讲
+  const stranger = gate({ chat_type: 2, peer_uid: '88888', sender_uid: '30003', text: '在吗' }, config, { uin: '30003' });
+  assert.equal(stranger.ok, false);
+  assert.match(stranger.reason, /不在白名单/);
+  // 静默照样管得住 owner
+  config.qq.mutedUntil = new Date(Date.now() + 3600_000).toISOString();
+  assert.equal(said('在吗').ok, false);
 });
 
 // ---------------------------------------------------------------- 读到的样子
