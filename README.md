@@ -3,7 +3,7 @@
 **把 DSH 里已经存在的那个人，接上 QQ。**
 
 不是再造一个机器人，也不搬走她原来的家：消息进来走她正在住的那个会话，她说过的话原路回到 QQ。
-装好之后重启 DSH 就能用，不需要 SnowLuma、不需要第二个进程、不需要再扫码（除了 ArkLink 登录那一次）。
+装好之后重启 DSH 就能用，不需要第二个进程、不需要再扫码（除了 ArkLink 登录那一次）。收信和语音/引用这类富消息要 SnowLuma（装在同一个 VM 里），没有它就只能发文字——见 INSTALL.md。
 
 ```
 QQ ──► ArkLink（登录着 QQ 的那台机器/虚拟机）──► dsh-arkhub ──► 她的会话（世界里那间）
@@ -17,7 +17,7 @@ QQ ──► ArkLink（登录着 QQ 的那台机器/虚拟机）──► dsh-ar
 
 | 能力 | 说明 |
 |---|---|
-| 接 QQ | 走 ArkLink 的 HTTP API（收消息 / 发消息），不依赖 OneBot、不依赖 SnowLuma |
+| 接 QQ | 走 ArkLink 的 HTTP API 发文字；收信和富消息走 SnowLuma（同一台 VM 里的协议层实现） |
 | 用她原来的会话 | 默认把私聊投进 `~/.dsh/worlds/<worldId>/life.json` 里的 `homeSessionId`，群聊各开一间屋子 |
 | 白名单 | 私聊 / 群各一份，留空 = 谁都不理（照 dsh-world 的规矩，不偷偷放开） |
 | 群里什么时候接话 | `mention`（默认，@ 她 / 命中关键词）或 `all` |
@@ -87,7 +87,7 @@ curl -X POST http://127.0.0.1:<端口>/dsh-arkhub/config \
 | 谁把消息投进会话 | 本插件自己 | qq-bridge（照搬它的机制）|
 | 会话绑定存哪 | `worlds/<id>/life.json` 的 `homeSessionId` | `~/.dsh/qq-bridge/state/sessions.json`，按 `private:<QQ>` / `group:<群号>` 一条一条绑 |
 | 世界控制台左下角那张 QQ 卡 | 不读本插件，会是「未运行」 | 真实：桥状态、上次收包、会话绑定、主动聊天统计 |
-| 需要 qq-bridge | 不需要 | 需要（它本来就在），但**不再需要 SnowLuma** |
+| 需要 qq-bridge | 不需要 | 需要（它本来就在） |
 
 门面模式做的事很少：把 ArkLink 的消息流翻译成 OneBot 事件，从 `:3010` 推给 qq-bridge；
 桥发出去的 `send_group_msg` / `send_private_msg` 翻译回 ArkLink 的 `/api/v1/send`。
