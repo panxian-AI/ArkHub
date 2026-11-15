@@ -89,19 +89,82 @@ function fixture() {
   return { home, dir, bridge, cleanup: () => rmSync(home, { recursive: true, force: true }) };
 }
 
-test('bridgeSwitch：换到原桥那条线时 channel 一起关掉（不然两个号会一起回话）', () => {
+test('bridgeSwitch：门面没开过就 rollback → channel 待命，装配行不添 bridge 段（老路）', () => {
   const f = fixture();
   try {
     bridgeSwitch({ home: f.home, use: false, channel: false, logger: { log: () => {} } });
 
     const after = readFileSync(join(f.dir, 'cordis.patch.yml'), 'utf8');
     assert.ok(after.includes(['        channel:', '          enabled: false'].join(NL)));
-    assert.ok(after.includes(['        bridge:', '          enabled: false'].join(NL)));
+    // 门面从没开过：bridge 段原样（这里原本就没有），不凭空添
+    assert.doesNotMatch(after, /^        bridge:$/m);
 
     const config = JSON.parse(readFileSync(join(f.bridge, 'config.json'), 'utf8'));
     assert.equal(config.snowluma.wsUrl, 'ws://127.0.0.1:3001/');
     // DSH 端口用现在的：备份那份是旧的，照抄过去桥就找不到 DSH 了
     assert.equal(config.dsh.baseUrl, 'http://127.0.0.1:62560');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('bridgeSwitch：双线常驻 —— 门面开着时 rollback，装配行一字不动，只把桥上游指回备份', () => {
+  const f = fixture();
+  try {
+    // 先进一次门面（bridge.enabled / channel.enabled 钉 true）
+    bridgeSwitch({ home: f.home, use: true, logger: { log: () => {} } });
+    const inFacade = readFileSync(join(f.dir, 'cordis.patch.yml'), 'utf8');
+    assert.ok(inFacade.includes(['        bridge:', '          enabled: true'].join(NL)));
+
+    // 再切回原桥：门面还挂着（装配行不再翻开关），桥的上游回到备份
+    bridgeSwitch({ home: f.home, use: false, logger: { log: () => {} } });
+    const after = readFileSync(join(f.dir, 'cordis.patch.yml'), 'utf8');
+    assert.ok(after.includes(['        bridge:', '          enabled: true'].join(NL)));
+    assert.ok(after.includes(['        channel:', '          enabled: true'].join(NL)));
+
+    const config = JSON.parse(readFileSync(join(f.bridge, 'config.json'), 'utf8'));
+    assert.equal(config.snowluma.wsUrl, 'ws://127.0.0.1:3001/');
+    // 端点跟随恢复备份原样，桥的自愈接着认真 SnowLuma
+    assert.equal(config.snowluma.followDiscoveredEndpoint, undefined);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('bridgeSwitch：叠过两份的同名段会先归一再翻转（修 2026-11-15 的重复键残留）', () => {
+  const f = fixture();
+  try {
+    // 模拟「翻转没匹配上变成追加」的坏块：channel / bridge 各两份，后者生效
+    const patchFile = join(f.dir, 'cordis.patch.yml');
+    const dirty = readFileSync(patchFile, 'utf8').replace(
+      '      config:\n',
+      [
+        '      config:',
+        '        channel:',
+        '          enabled: false',
+        '        channel:',
+        '          enabled: true',
+        '        bridge:',
+        '          enabled: false',
+        '          port: 3010',
+        '          token: \'\'',
+        '          heartbeatMs: 30000',
+        '        bridge:',
+        '          enabled: true',
+        '          port: 3010',
+        '          token: \'\'',
+        '          heartbeatMs: 30000',
+      ].join('\n') + '\n',
+    );
+    writeFileSync(patchFile, dirty);
+
+    // rollback：门面按「后者」算开着 → 装配行归一成一份且保持 true
+    bridgeSwitch({ home: f.home, use: false, logger: { log: () => {} } });
+    const after = readFileSync(patchFile, 'utf8');
+    assert.equal(after.match(/^        channel:$/gm)?.length, 1);
+    assert.equal(after.match(/^        bridge:$/gm)?.length, 1);
+    assert.ok(after.includes(['        bridge:', '          enabled: true'].join(NL)));
+    assert.ok(after.includes(['        channel:', '          enabled: true'].join(NL)));
   } finally {
     f.cleanup();
   }

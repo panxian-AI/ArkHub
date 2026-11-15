@@ -1,6 +1,6 @@
 {
   "name": "dsh-arkhub",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "把 DSH 里的角色接上 QQ：ArkLink 通道插件，走她原来的会话，不另起一个进程。",
   "keywords": [
     "dsh",

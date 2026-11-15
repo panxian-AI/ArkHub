@@ -96,3 +96,28 @@ test('flipBridge：token 里的单引号要转义', () => {
   const flipped = flipBridge(arkhubBlock(PATCH), true, 3010, "a'b");
   assert.match(flipped, /token: 'a''b'/);
 });
+
+test('flipBridge：true 翻 true 不许追加第二段（2026-11-15 真机叠键的根源）', () => {
+  const block = arkhubBlock(PATCH).trimEnd() + `
+        bridge:
+          enabled: true
+          port: 3010
+          token: ''
+          heartbeatMs: 30000
+`;
+  const again = flipBridge(block, true);
+  assert.equal(again.match(/^        bridge:$/gm).length, 1);
+});
+
+test('flipChannel：true 翻 true 不许追加第二段', () => {
+  const flipChannel = new Function('block', 'enabled', `'use strict';
+    ${extract('flipChannel')}
+    return flipChannel(block, enabled);
+  `);
+  const block = arkhubBlock(PATCH).trimEnd() + `
+        channel:
+          enabled: true
+`;
+  const again = flipChannel(block, true);
+  assert.equal(again.match(/^        channel:$/gm).length, 1);
+});

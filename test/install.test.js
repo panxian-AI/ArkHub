@@ -172,3 +172,26 @@ test('备份只存第一次：反复安装不会把备份冲成「已装好」�
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('全新 DSH：appendWorldBlock 补一段 dsh-world，桥目录用绝对路径', async () => {
+  const { appendWorldBlock, WORLD_SPEC } = await import('../lib/dsh-home.js');
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+
+  const home = mkdtempSync(join(tmpdir(), 'arkhub-world-'));
+  try {
+    const out = appendWorldBlock('- id: other\n  name: other\n', home);
+    assert.match(out, /^- id: dsh-world$/m);
+    assert.match(out, /qqBridgeDir: '[^']*qq-bridge'/);
+    assert.doesNotMatch(out, /qqBridgeDir: '~\//);
+    assert.match(out, /qqBridgePort: 3100/);
+    // 已有 dsh-world 块就一字不动（用户自己的 companionName 之类别被覆盖）
+    const twice = appendWorldBlock(out.replace(/qqBridgePort: 3100/, 'qqBridgePort: 3100'), home);
+    assert.equal(twice.match(/- id: dsh-world/g).length, 1);
+    // 版本线钉在补丁验证过的 0.5.x
+    assert.match(WORLD_SPEC, /^\^0\.6\./);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});

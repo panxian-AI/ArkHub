@@ -142,16 +142,26 @@ function patchFile(file, edits, { apply }) {
   const before = readFileSync(file, 'utf8');
   let after = before;
   const notes = [];
+  // 行尾自适应：锚点串都是 \n 写的，可 0.7.5 的 client 是 CRLF —— 锚点命中不该看行尾脸色。
+  const newline = after.includes('\r\n') ? '\r\n' : '\n';
+  const adapt = text => text.replace(/\r\n/g, '\n').replace(/\n/g, newline);
   for (const edit of edits) {
-    if (after.includes(edit.marker)) {
+    const variants = edit.variants ?? [{ find: edit.find, replace: edit.replace }];
+    // 「已装」的判定：显式 marker，或任何一个 variant 的替换结果已经在文件里。
+    // （npm 版和自带版的替换结果不一样，只认一个 marker 会对另一版重复打、然后报锚点丢失。）
+    const markers = [...(edit.markers ?? (edit.marker ? [edit.marker] : [])), ...variants.map(one => one.replace)];
+    if (markers.some(marker => after.includes(adapt(marker)))) {
       notes.push('已装');
       continue;
     }
-    if (!after.includes(edit.find)) {
+    // 锚点按代际给候选（dsh-world 0.5.x 是 DSH 自带的一份、0.6.4+ 才上 npm，函数签名
+    // 不一样；0.7.x 又把 worldPrefix 加进了第一个参数）。哪个候选在文件里找得到用哪个。
+    const hit = variants.find(one => after.includes(adapt(one.find)));
+    if (!hit) {
       notes.push(`找不到锚点：${edit.label}`);
       continue;
     }
-    after = after.replace(edit.find, edit.replace);
+    after = after.replace(adapt(hit.find), adapt(hit.replace));
     notes.push(`+ ${edit.label}`);
   }
   const changed = after !== before;
@@ -188,14 +198,37 @@ function main() {
       {
         label: '宿主：qqRoute 多接一个 origin',
         marker: "export function qqRoute(qq, allowedHosts = [], doors, origin = () => '') {",
-        find: 'export function qqRoute(qq, allowedHosts = [], doors) {',
-        replace: 'export function qqRoute(qq, allowedHosts = [], doors, origin = () => \'\') {',
+        variants: [
+          // 0.5.x（DSH 自带的那份）：第一个参数是 qq
+          {
+            find: 'export function qqRoute(qq, allowedHosts = [], doors) {',
+            replace: 'export function qqRoute(qq, allowedHosts = [], doors, origin = () => \'\') {',
+          },
+          // 0.6.x（npm）：没有 qq，多一对 native/setNative
+          {
+            find: 'export function qqRoute(allowedHosts = [], doors, native, setNative) {',
+            replace: 'export function qqRoute(allowedHosts = [], doors, native, setNative, origin = () => \'\') {',
+          },
+          // 0.7.x（npm）：最前面又多了一个 worldPrefix
+          {
+            find: 'export function qqRoute(worldPrefix, allowedHosts = [], doors, native, setNative) {',
+            replace: 'export function qqRoute(worldPrefix, allowedHosts = [], doors, native, setNative, origin = () => \'\') {',
+          },
+        ],
       },
       {
         label: '宿主：write() 多接一个 origin',
         marker: 'async function write(qq, doors, path, body, origin) {',
-        find: 'async function write(qq, doors, path, body) {',
-        replace: 'async function write(qq, doors, path, body, origin) {',
+        variants: [
+          {
+            find: 'async function write(qq, doors, path, body) {',
+            replace: 'async function write(qq, doors, path, body, origin) {',
+          },
+          {
+            find: 'async function write(doors, path, body, setNative) {',
+            replace: 'async function write(doors, path, body, setNative, origin) {',
+          },
+        ],
       },
       {
         label: '宿主：GET /lines',
@@ -206,31 +239,73 @@ function main() {
       {
         label: '宿主：POST /lines',
         marker: "return bad('不知道 DSH 自己的地址');",
-        find: '        case \'/bind\': {',
-        replace: `${ROUTE_POST.trimEnd()}\n        case '/bind': {`,
+        variants: [
+          // 0.5.x：write() 的分支里有 /bind 可锚
+          {
+            find: '        case \'/bind\': {',
+            replace: `${ROUTE_POST.trimEnd()}\n        case '/bind': {`,
+          },
+          // 0.6.x / 0.7.x（npm）：没有 /bind，锚在收尾的 default 前面
+          {
+            find: '        default: return undefined;',
+            replace: `${ROUTE_POST.trimEnd()}\n        default: return undefined;`,
+          },
+        ],
       },
       {
         label: '宿主：把 origin 传进 write()',
         marker: 'const result = await write(qq, doors, path, body, origin);',
-        find: 'const result = await write(qq, doors, path, body);',
-        replace: 'const result = await write(qq, doors, path, body, origin);',
+        variants: [
+          {
+            find: 'const result = await write(qq, doors, path, body);',
+            replace: 'const result = await write(qq, doors, path, body, origin);',
+          },
+          {
+            find: 'const result = await write(doors, path, body, setNative);',
+            replace: 'const result = await write(doors, path, body, setNative, origin);',
+          },
+        ],
       },
     ], { apply: !check }),
     patchFile(join(pkg, 'lib', 'index.js'), [
       {
         label: '宿主：注册路由时给出自己的地址',
         marker: 'qqRoute(service, config.allowedHosts, doors, () => host.origin())',
-        find: 'unregisterQq = webServer.register(qqRoute(service, config.allowedHosts, doors));',
-        replace: 'unregisterQq = webServer.register(qqRoute(service, config.allowedHosts, doors, () => host.origin()));',
+        variants: [
+          // 0.5.x：注册时还带着 service
+          {
+            find: 'unregisterQq = webServer.register(qqRoute(service, config.allowedHosts, doors));',
+            replace: 'unregisterQq = webServer.register(qqRoute(service, config.allowedHosts, doors, () => host.origin()));',
+          },
+          // 0.6.x / 0.7.x（npm）：注册时带 native / setNative，origin 追在最后
+          // （host 在同一作用域里更靠后定义，回调是收请求时才跑，不踩暂时性死区）
+          {
+            find: 'webServer.register(qqRoute(config.allowedHosts, doors, () => qqNative?.status() ?? null, patch => qqNative?.update(patch) ?? null));',
+            replace: 'webServer.register(qqRoute(config.allowedHosts, doors, () => qqNative?.status() ?? null, patch => qqNative?.update(patch) ?? null, () => host.origin()));',
+          },
+          {
+            find: 'webServer.register(qqRoute(prefix, config.allowedHosts, doors, () => qqNative?.status() ?? null, patch => qqNative?.update(patch) ?? null));',
+            replace: 'webServer.register(qqRoute(prefix, config.allowedHosts, doors, () => qqNative?.status() ?? null, patch => qqNative?.update(patch) ?? null, () => host.origin()));',
+          },
+        ],
       },
     ], { apply: !check }),
     patchFile(join(pkg, 'client', 'index.js'), [
       {
         label: '界面：状态与换线动作',
-        marker: `${MARK}:state`,
-        // 锚在函数签名上：`var msgState = ...` 这一行文件里有七处，锚错了会补到别人身上
-        find: '    function Qq(props) {\n      var qq = props.qq || {}',
-        replace: `    function Qq(props) {\n      var qq = props.qq || {}${CLIENT_STATE.replace(MARK, `${MARK}:state`)}`,
+        markers: [`${MARK}:state`],
+        variants: [
+          // 0.5.x：Qq 先取 props.qq
+          {
+            find: '    function Qq(props) {\n      var qq = props.qq || {}',
+            replace: `    function Qq(props) {\n      var qq = props.qq || {}${CLIENT_STATE.replace(MARK, `${MARK}:state`)}`,
+          },
+          // 0.6.x / 0.7.x（npm）：Qq 直接从 busyState 开头
+          {
+            find: '    function Qq(props) {\n      var busyState = useState(false), busy = busyState[0], setBusy = busyState[1]',
+            replace: `    function Qq(props) {\n      var busyState = useState(false), busy = busyState[0], setBusy = busyState[1]${CLIENT_STATE.replace(MARK, `${MARK}:state`)}`,
+          },
+        ],
       },
       {
         label: '界面：QQ 卡上的选择器',

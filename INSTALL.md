@@ -12,6 +12,32 @@
 
 装完她会用**原来那个会话**回 QQ 消息，不新建角色、不另起进程。
 
+### 全新 DSH（从零开始）
+
+DSH 刚装好、什么插件都没有也行 —— `install` 会把 **dsh-world 一起装上**：
+
+- profile 的 `dependencies` 里没有 `dsh-world` 就自动加（版本钉在 `^0.6.4`，npm 上最早的
+  公开版就是 0.6.4；0.x 的 `^` 只钉次要版本，不会跳到 0.7+。「用哪个号」补丁对自带 0.5.x、
+  npm 0.6.x、0.7.x 三代锚点都认。profile 里本来就有 dsh-world 的话一个字不动）；
+- 装配行里没有 `- id: dsh-world` 块就自动补一段（`qqBridgeDir` 指到 `<DSH home>/qq-bridge`、
+  `qqBridgeAutoStart: true`）；
+- pnpm 落地后自动跑一次 `tools/dsh-world-patch/apply.mjs`，QQ 卡上的「用哪个号」选择器
+  也就位了（失败不拦安装，命令行 `dsh-arkhub lines` / `line vm` 照样能换线）。
+
+所以从零开始的完整步骤就是：
+
+```bash
+git clone https://github.com/panxian-AI/ArkHub
+cd ArkHub
+node bin/dsh-arkhub.mjs doctor   # 先体检
+node bin/dsh-arkhub.mjs install  # dsh-world + dsh-arkhub 一起装，配置全自动
+# 重启 DSH，curl http://127.0.0.1:62560/dsh-arkhub/status 验证
+```
+
+VM 里的 QQ 想要人工兜底（扫码/验证/换号，watchdog 没收录的界面亲手点）：装
+ArkLink 仓库 `tools/vm-manual/install.sh`，宿主 VNC 客户端连 `127.0.0.1:5903`，
+详见 ArkLink 文档「人工操作口（VNC）」。
+
 ---
 
 ## 给助手看的

@@ -23,8 +23,10 @@ import {
   dshHome,
   dropBackup,
   ensureBundle,
+  appendWorldBlock,
   findToolchain,
   linkSpec,
+  WORLD_SPEC,
   listProfiles,
   pickProfile,
   readJson,
@@ -164,20 +166,26 @@ async function commandInstall(args) {
 
   console.log(`装到 profile：${profile.name}（${reason}）`);
 
-  // 1) 依赖 + bundles
+  // 1) 依赖 + bundles。全新 DSH 上 dsh-world 多半不在 —— 世界控制台那张 QQ 卡就是它画的，
+  //    「用哪个号」的选择器也在它身上，所以一并列进依赖，一次 pnpm 全落地。
   backupOnce(profile.file);
   const pkgText = readFileSync(profile.file, 'utf8');
   const pkg = readJson(profile.file);
   pkg.dependencies = pkg.dependencies || {};
+  const worldWasInstalled = Boolean(pkg.dependencies['dsh-world']);
+  if (!worldWasInstalled) pkg.dependencies['dsh-world'] = WORLD_SPEC;
+  const worldBundleAdded = ensureBundle(pkg, 'dsh-world');
   pkg.dependencies[BUNDLE_ID] = linkSpec(REPO_ROOT);
   const bundleAdded = ensureBundle(pkg);
   writeJson(profile.file, pkg);
 
-  // 2) 装配行
+  // 2) 装配行。dsh-world 块只在全新状态补（已有 `- id: dsh-world` 就一字不动）
   const patchFile = profile.patchFile;
   const before = existsSync(patchFile) ? readFileSync(patchFile, 'utf8') : '';
   backupOnce(patchFile);
-  writeFileSync(patchFile, applyPatchBlock(before, buildPatchBlock(config)), 'utf8');
+  const worldBlockAdded = !worldWasInstalled && !/^-\s*id:\s*dsh-world\b/m.test(before);
+  const patchBase = worldBlockAdded ? appendWorldBlock(before, home) : before;
+  writeFileSync(patchFile, applyPatchBlock(patchBase, buildPatchBlock(config)), 'utf8');
 
   // 3) 依赖落地。失败就把刚写的两个文件退回原样，不给人留一个半装状态
   console.log('安装依赖…');
@@ -191,9 +199,22 @@ async function commandInstall(args) {
   }
 
   const linked = existsSync(join(profile.dir, 'node_modules', BUNDLE_ID));
+  const worldLinked = existsSync(join(profile.dir, 'node_modules', 'dsh-world'));
+
+  // 4) dsh-world 刚装上的话，顺手把「用哪个号」的补丁打上（幂等；失败不拦安装，
+  //    QQ 卡少一行选择器而已，命令行换线照用）。已有 dsh-world 也不打 —— 那份可能
+  //    是别处维护的版本，改之前该由人决定。
+  let worldPatchNote = '';
+  if (!worldWasInstalled && worldLinked) {
+    const res = spawnSync(process.execPath, [join(REPO_ROOT, 'tools', 'dsh-world-patch', 'apply.mjs'), '--home', home, '--profile', profile.name], { encoding: 'utf8' });
+    worldPatchNote = res.status === 0
+      ? '（「用哪个号」选择器已打上）'
+      : `（选择器补丁没全成，不影响使用：${String(res.stdout || res.stderr || '').split('\n').filter(Boolean).slice(-1).join(' ')}）`;
+  }
 
   console.log('');
-  console.log(`${mark(true)} profile      ${profile.file}${bundleAdded ? '（已登记 bundle）' : '（bundle 早已登记）'}`);
+  console.log(`${mark(true)} profile      ${profile.file}${bundleAdded || worldBundleAdded ? '（已登记 bundle）' : '（bundle 早已登记）'}`);
+  console.log(`${mark(worldLinked)} dsh-world    ${worldWasInstalled ? '本来就有，没动' : `已装（依赖 + bundle${worldBlockAdded ? ' + 装配行' : ''}）`}${worldLinked ? worldPatchNote : ''}`);
   console.log(`${mark(true)} 装配行       ${patchFile}`);
   console.log(`${mark(linked)} 依赖         ${linked ? `node_modules/${BUNDLE_ID} → ${REPO_ROOT}` : '未落地，检查 pnpm 输出'}`);
   console.log(`${mark(Boolean(config.qq.accountUin))} 账号         ${config.qq.accountUin || '未识别（ArkLink 没连上？装好后到面板里改）'}`);
@@ -487,7 +508,7 @@ async function commandMonitor(args) {
   return 0;
 }
 
-/** 换桥：bridge use / bridge rollback。三处改动一条命令做完，rollback 一条退回。 */
+/** 换桥：bridge use / bridge rollback。选一条线接入；两条线都挂着，切换互不拆台。 */
 async function commandBridge(args) {
   const action = String(args._[1] || '');
   if (action !== 'use' && action !== 'rollback') {
@@ -500,7 +521,6 @@ async function commandBridge(args) {
     const { port } = await bridgeSwitchAndRestart({
       home,
       use,
-      channel: use,
       profile: args.profile && args.profile !== true ? String(args.profile) : '',
       logger: console,
     });
@@ -510,8 +530,10 @@ async function commandBridge(args) {
       console.log(`${mark(true)} 会话        由 qq-bridge 按它自己的机制投（真机本地 sessions.json）`);
       console.log(`   验证       世界控制台 → 设置 → 接入 → QQ：卡片应显示运行中、上次收包在走；`);
       console.log(`              或 node bin/dsh-arkhub.mjs status 看「门面 连着 N 个客户端」。`);
+      console.log(`   双线常驻   本机 SnowLuma 那条线还挂着，bridge rollback 随时切过去，不用重起门面。`);
     } else {
-      console.log(`${mark(true)} 已退回      原桥那条线（本机 SnowLuma 直连），本插件待命`);
+      console.log(`${mark(true)} 已接入      原桥那条线（本机 SnowLuma 直连）`);
+      console.log(`${mark(true)} 门面        还挂在 127.0.0.1:${port}（双线常驻，只是暂时没人连），随时 bridge use 切回`);
     }
     return 0;
   } catch (error) {
