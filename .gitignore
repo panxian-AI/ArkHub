@@ -8,3 +8,5 @@ node_modules/
 *.bak
 live.json
 monitor/
+# 视频物料只留本地，不进仓库（2026-11-15 用户要求）
+docs/media/
